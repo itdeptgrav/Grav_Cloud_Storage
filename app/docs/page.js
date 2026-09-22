@@ -1,91 +1,129 @@
 "use client";
-// Grav Storage — public documentation center. In-UI, navigable, no auth.
-// Content is verified against the implementation (routes, lib/http.js error
-// codes, lib/config.js defaults) as of Phase 5.
-import { useEffect, useState } from "react";
+// Grav Storage — public documentation center. 3-column docs experience:
+// left nav · reading column · "On this page" TOC · client-side search (⌘K).
+// Content verified against the implementation (routes, lib/http.js, lib/config.js).
+import { useEffect, useMemo, useRef, useState } from "react";
 import CodeBlock from "@/components/CodeBlock";
+import Icon from "@/components/icons";
 
 const NAV = [
-  ["Getting started", [
-    ["intro", "Introduction"],
-    ["quickstart", "Quick start"],
-    ["security", "Security ⚠"],
-  ]],
-  ["Concepts", [
-    ["auth", "Authentication"],
-    ["keys", "API keys & scopes"],
-    ["files-model", "The file model"],
-    ["folders", "Folders, tags & metadata"],
-    ["usage", "Usage & quotas"],
-    ["limits", "Rate limits & concurrency"],
-    ["errors", "Error reference"],
-  ]],
-  ["SDK", [
-    ["sdk-install", "Install & configure"],
-    ["sdk-ref", "SDK reference"],
-  ]],
-  ["HTTP API", [
-    ["api-auth", "Auth & base URL"],
-    ["api-upload", "Upload"],
-    ["api-get", "Retrieve & download"],
-    ["api-range", "Range requests"],
-    ["api-meta", "Metadata"],
-    ["api-list", "List"],
-    ["api-delete", "Delete"],
-    ["api-usage", "Usage & key info"],
-  ]],
-  ["Examples", [
-    ["ex-node", "Node.js"],
-    ["ex-curl", "cURL"],
-    ["ex-ps", "PowerShell"],
-    ["ex-cms", "GRAV CMS pattern"],
-  ]],
-  ["Operations", [
-    ["deploy", "Production deployment"],
-    ["backup", "Backup & restore"],
-    ["maintenance", "Maintenance"],
-  ]],
+  ["Getting Started", [["intro", "Introduction"], ["quickstart", "Quick Start"], ["security", "Security"], ["auth", "Authentication"], ["keys", "API Keys"]]],
+  ["Concepts", [["files-model", "The File Model"], ["folders", "Folders & Metadata"], ["usage", "Usage & Quotas"], ["limits", "Rate Limits"], ["errors", "Errors"]]],
+  ["Files API", [["api-auth", "Base URL & Auth"], ["api-upload", "Upload"], ["api-get", "Retrieve & Download"], ["api-range", "Range Requests"], ["api-meta", "Metadata"], ["api-list", "List"], ["api-delete", "Delete"], ["api-usage", "Usage & Key Info"]]],
+  ["SDK", [["sdk-install", "Installation"], ["sdk-ref", "SDK Reference"]]],
+  ["Examples", [["ex-node", "Node.js"], ["ex-curl", "cURL"], ["ex-ps", "PowerShell"], ["ex-cms", "GRAV CMS Pattern"]]],
+  ["Operations", [["deploy", "Deployment"], ["backup", "Backup & Restore"], ["maintenance", "Maintenance"]]],
 ];
+const FLAT = NAV.flatMap(([g, items]) => items.map(([id, label]) => ({ id, label, group: g })));
+const slug = (t) => t.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
 
 export default function DocsPage() {
   const [active, setActive] = useState("intro");
+  const [q, setQ] = useState("");
+  const [showRes, setShowRes] = useState(false);
+  const [sel, setSel] = useState(0);
+  const [sideOpen, setSideOpen] = useState(false);
+  const [toc, setToc] = useState([]);
+  const [activeH, setActiveH] = useState("");
+  const articleRef = useRef(null);
+  const searchRef = useRef(null);
+
+  const go = (id) => { setActive(id); setSideOpen(false); setShowRes(false); setQ(""); window.history.replaceState(null, "", `#${id}`); window.scrollTo(0, 0); };
+
   useEffect(() => {
-    const h = () => { const id = window.location.hash.slice(1); if (id) setActive(id); };
-    h();
-    window.addEventListener("hashchange", h);
-    return () => window.removeEventListener("hashchange", h);
+    const id = window.location.hash.slice(1);
+    if (id && FLAT.some((x) => x.id === id)) setActive(id);
+    const onKey = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); searchRef.current?.focus(); }
+      if (e.key === "Escape") { setShowRes(false); searchRef.current?.blur(); }
+    };
+    const onHash = () => { const h = window.location.hash.slice(1); if (FLAT.some((x) => x.id === h)) { setActive(h); window.scrollTo(0, 0); } };
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("hashchange", onHash);
+    return () => { window.removeEventListener("keydown", onKey); window.removeEventListener("hashchange", onHash); };
   }, []);
-  const go = (id) => { setActive(id); window.history.replaceState(null, "", `#${id}`); window.scrollTo(0, 0); };
+
+  // Build "On this page" TOC + scroll-spy from the rendered article headings.
+  useEffect(() => {
+    const el = articleRef.current;
+    if (!el) return;
+    const heads = [...el.querySelectorAll("h2, h3")];
+    const items = heads.map((h) => { const id = h.id || slug(h.textContent); h.id = id; return { id, text: h.textContent, level: h.tagName === "H3" ? 3 : 2 }; });
+    setToc(items);
+    setActiveH(items[0]?.id || "");
+    if (!heads.length) return;
+    const obs = new IntersectionObserver((entries) => {
+      const vis = entries.filter((e) => e.isIntersecting).sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
+      if (vis[0]) setActiveH(vis[0].target.id);
+    }, { rootMargin: "-72px 0px -72% 0px", threshold: 0 });
+    heads.forEach((h) => obs.observe(h));
+    return () => obs.disconnect();
+  }, [active]);
+
+  const results = useMemo(() => (q.trim() ? FLAT.filter((x) => (x.label + " " + x.group).toLowerCase().includes(q.toLowerCase())).slice(0, 8) : []), [q]);
+  function onSearchKey(e) {
+    if (!results.length) return;
+    if (e.key === "ArrowDown") { e.preventDefault(); setSel((s) => (s + 1) % results.length); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); setSel((s) => (s - 1 + results.length) % results.length); }
+    else if (e.key === "Enter") { e.preventDefault(); go(results[sel]?.id || results[0].id); }
+  }
 
   return (
     <>
-      <div className="topbar">
-        <div className="topbar-inner">
-          <a href="/" className="brand row" style={{ color: "var(--text)", gap: 9 }}><span className="gs-logo" style={{ width: 24, height: 24, fontSize: 13 }}>G</span> Grav Storage</a>
-          <span className="badge">Docs</span>
-          <span className="spacer" />
-          <a href="/dashboard" className="btn btn-ghost btn-sm">Dashboard</a>
-          <a href="/login" className="btn btn-primary btn-sm">Sign in</a>
+      <header className="docs-header">
+        <button className="btn btn-icon btn-subtle btn-sm docs-side-toggle" aria-label="Menu" onClick={() => setSideOpen(true)}><Icon name="menu" /></button>
+        <a href="/" className="brand"><span className="gs-logo" style={{ width: 24, height: 24, fontSize: 13 }}>G</span> Grav Storage <span className="sep">/</span> <span className="docs-word">Docs</span></a>
+        <div className="docs-search">
+          <Icon name="search" size={15} className="s-ico" />
+          <input ref={searchRef} value={q} placeholder="Search documentation…"
+            onChange={(e) => { setQ(e.target.value); setSel(0); setShowRes(true); }}
+            onFocus={() => setShowRes(true)} onBlur={() => setTimeout(() => setShowRes(false), 150)} onKeyDown={onSearchKey} />
+          <kbd className="s-kbd">⌘K</kbd>
+          {showRes && q.trim() && (
+            <div className="docs-search-results">
+              {results.length ? results.map((r, i) => (
+                <a key={r.id} className={i === sel ? "on" : ""} onMouseEnter={() => setSel(i)} onMouseDown={(e) => { e.preventDefault(); go(r.id); }}>
+                  <span>{r.label}</span><span className="r-grp">{r.group}</span>
+                </a>
+              )) : <div className="docs-search-empty">No results for “{q}”</div>}
+            </div>
+          )}
         </div>
-      </div>
-      <div className="container" style={{ paddingTop: 0, maxWidth: 1120 }}>
-        <div className="docs-shell">
-          <nav className="docs-nav">
-            {NAV.map(([group, items]) => (
-              <div key={group}>
-                <div className="grp">{group}</div>
-                {items.map(([id, label]) => (
-                  <a key={id} className={active === id ? "on" : ""} onClick={() => go(id)}>{label}</a>
-                ))}
-              </div>
-            ))}
-          </nav>
-          <main className="docs-main">
+        <span className="spacer" />
+        <a href="/dashboard" className="btn btn-ghost btn-sm">Dashboard</a>
+        <a href="/login" className="btn btn-primary btn-sm">Sign in</a>
+      </header>
+
+      <div className={`docs-side-backdrop ${sideOpen ? "open" : ""}`} onClick={() => setSideOpen(false)} />
+      <div className="docs-layout">
+        <nav className={`docs-side ${sideOpen ? "open" : ""}`}>
+          {NAV.map(([group, items]) => (
+            <div key={group}>
+              <div className="grp">{group}</div>
+              {items.map(([id, label]) => (
+                <a key={id} className={active === id ? "on" : ""} onClick={() => go(id)}>{label}</a>
+              ))}
+            </div>
+          ))}
+        </nav>
+
+        <main className="docs-article">
+          <div ref={articleRef}>
             {SECTIONS[active] ? SECTIONS[active]() : SECTIONS.intro()}
-            <hr className="hr" style={{ marginTop: 36 }} />
-            <p className="muted small">Grav Storage · self-hosted object storage · API v1</p>
-          </main>
-        </div>
+          </div>
+          <hr className="hr" style={{ marginTop: 40 }} />
+          <p className="muted small">Grav Storage · self-hosted object storage · API v1</p>
+        </main>
+
+        <aside className="docs-toc">
+          {toc.length > 0 && <>
+            <div className="toc-title">On this page</div>
+            {toc.map((t) => (
+              <a key={t.id} className={`${activeH === t.id ? "on" : ""} ${t.level === 3 ? "lvl3" : ""}`}
+                onClick={() => document.getElementById(t.id)?.scrollIntoView({ behavior: "smooth" })}>{t.text}</a>
+            ))}
+          </>}
+        </aside>
       </div>
     </>
   );

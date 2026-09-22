@@ -173,6 +173,17 @@ export function Field({ label, hint, required, children, htmlFor }) {
   );
 }
 export function Input({ className = "", ...props }) { return <input className={`input ${className}`} {...props} />; }
+export function PasswordField({ className = "", ...props }) {
+  const [show, setShow] = useState(false);
+  return (
+    <span className="pw-field">
+      <input className={`input ${className}`} type={show ? "text" : "password"} {...props} />
+      <button type="button" className="pw-toggle" tabIndex={-1} aria-label={show ? "Hide password" : "Show password"} onClick={() => setShow((s) => !s)}>
+        <Icon name={show ? "eyeOff" : "eye"} size={15} />
+      </button>
+    </span>
+  );
+}
 export function Textarea({ className = "", ...props }) { return <textarea className={`input ${className}`} {...props} />; }
 export function Select({ className = "", children, ...props }) { return <select className={`select ${className}`} {...props}>{children}</select>; }
 export function SearchInput({ className = "", ...props }) {
