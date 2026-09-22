@@ -1,0 +1,23 @@
+# Dependencies
+node_modules/
+
+# Next.js build output
+.next/
+out/
+
+# Environment — NEVER commit real secrets or API keys.
+# .env.example IS committed (it is only a template with blank values).
+.env
+.env.local
+.env*.local
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS / editor
+.DS_Store
+Thumbs.db
+
+# NOTE: uploaded file bytes are stored OUTSIDE this repo (STORAGE_ROOT,
+# e.g. D:\GravStorage\data) and must never live in the source tree.

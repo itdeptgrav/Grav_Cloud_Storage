@@ -1,0 +1,30 @@
+/* Minimal global styling for Phase 0. The full design system (Tailwind) arrives
+   with the dashboard in Phase 3. */
+:root {
+  color-scheme: dark;
+  --bg: #0b1220;
+  --panel: #111a2e;
+  --border: #1e293b;
+  --text: #e5e7eb;
+  --muted: #94a3b8;
+  --up: #34d399;
+  --down: #f87171;
+  --accent: #38bdf8;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+}
+
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
