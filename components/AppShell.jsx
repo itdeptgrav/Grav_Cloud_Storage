@@ -18,9 +18,12 @@ export default function AppShell({ user, children }) {
           <a href="/dashboard" className="brand" style={{ color: "var(--text)", textDecoration: "none" }}>
             Grav Storage
           </a>
+          <a href="/playground" className="btn btn-ghost btn-sm">Playground</a>
+          <a href="/docs" className="btn btn-ghost btn-sm">Docs</a>
           <span className="spacer" />
           {user.role === "superadmin" && (
             <>
+              <a href="/admin/benchmark" className="btn btn-ghost btn-sm">Benchmark</a>
               <a href="/admin/maintenance" className="btn btn-ghost btn-sm">Maintenance</a>
               <a href="/admin/logs" className="btn btn-ghost btn-sm">Logs</a>
             </>

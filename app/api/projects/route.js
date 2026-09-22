@@ -4,6 +4,7 @@
 import { ok, fail } from "@/lib/http";
 import { requireUser } from "@/lib/auth/guards";
 import { createProject, listProjects } from "@/lib/services/projectService";
+import { csrfGuard } from "@/lib/csrf";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,6 +17,8 @@ export async function GET() {
 }
 
 export async function POST(request) {
+  const csrf = csrfGuard(request);
+  if (csrf) return csrf;
   const { user, error } = await requireUser();
   if (error) return error;
 

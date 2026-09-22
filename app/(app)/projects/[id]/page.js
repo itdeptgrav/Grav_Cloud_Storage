@@ -5,6 +5,7 @@ import { api } from "@/lib/clientApi";
 import { fmtBytes, timeAgo, fmtDate } from "@/lib/format";
 import { Button, Field, Input, Modal, ErrorNote, Badge, Copyable } from "@/components/ui";
 import FileManager from "@/components/files/FileManager";
+import CodeBlock from "@/components/CodeBlock";
 
 const ALL_SCOPES = [
   ["files:read", "Read files"],
@@ -68,7 +69,7 @@ export default function ProjectPage() {
       </div>
 
       <div className="tabs">
-        {[["overview", "Overview"], ["files", "Files"], ["keys", "API Keys"], ["usage", "Usage"], ["requests", "Requests"], ["settings", "Settings"]].map(([t, label]) => (
+        {[["overview", "Overview"], ["files", "Files"], ["keys", "API Keys"], ["usage", "Usage"], ["requests", "Requests"], ["docs", "Documentation"], ["settings", "Settings"]].map(([t, label]) => (
           <button key={t} className={`tab ${tab === t ? "tab-active" : ""}`} onClick={() => setTab(t)}>
             {label}
           </button>
@@ -80,6 +81,7 @@ export default function ProjectPage() {
       {tab === "keys" && <KeysTab project={project} keys={keys} reload={loadKeys} />}
       {tab === "usage" && <UsageTab project={project} keys={keys} />}
       {tab === "requests" && <RequestsTab project={project} keys={keys} />}
+      {tab === "docs" && <DocsTab project={project} keys={keys} onKeys={() => setTab("keys")} />}
       {tab === "settings" && <SettingsTab project={project} me={me} onChange={loadProject} />}
     </>
   );
@@ -472,7 +474,8 @@ function RevealModal({ reveal, onClose, baseUrl }) {
         {"\n"}GRAV_STORAGE_API_KEY={secret}
       </div>
       <p className="small muted" style={{ marginTop: 8 }}>
-        Keep this on your server. Never expose it in frontend/browser code. Full upload/fetch API arrives in Phase 2.
+        Keep this on your server. Never expose it in frontend/browser code. See the{" "}
+        <a href="/docs" target="_blank" rel="noreferrer">Documentation center</a> for the full upload/fetch API.
       </p>
       <div className="row" style={{ justifyContent: "flex-end", marginTop: 14 }}>
         <Button variant="primary" onClick={onClose}>I&apos;ve copied it — close</Button>
@@ -604,6 +607,66 @@ function SettingsTab({ project, me, onChange }) {
           {project.status === "active" && <Button variant="danger" onClick={() => setStatus("disabled")}>Disable</Button>}
           {project.status !== "archived" && <Button variant="danger" onClick={() => setStatus("archived")}>Archive</Button>}
         </div>
+      </div>
+    </div>
+  );
+}
+
+function DocsTab({ project, keys, onKeys }) {
+  const baseUrl = typeof window !== "undefined" ? window.location.origin : "";
+  const hasActiveKey = (keys || []).some((k) => k.status === "active");
+  return (
+    <div style={{ maxWidth: 760 }}>
+      <div className="notice notice-error" style={{ marginBottom: 14 }}>
+        <b>API keys are server-side secrets.</b> Never put a key in browser code or a <span className="mono">NEXT_PUBLIC_*</span> variable.
+        Your browser → your backend → Grav Storage. Only your backend holds the key.
+      </div>
+
+      <div className="card">
+        <h2>Integrate this project</h2>
+        <p className="muted small" style={{ marginTop: 0 }}>
+          Files uploaded with this project&apos;s keys count against <b>this</b> project&apos;s quota and are isolated from every other project.
+        </p>
+        <dl className="kv">
+          <dt>Base URL</dt><dd className="mono">{baseUrl}</dd>
+          <dt>Project ID</dt><dd className="mono small">{project.id}</dd>
+        </dl>
+        {!hasActiveKey && (
+          <div className="notice notice-warn" style={{ margin: "10px 0" }}>
+            You have no active API key yet. <button className="btn btn-sm" onClick={onKeys}>Create one in API Keys →</button>
+          </div>
+        )}
+      </div>
+
+      <div className="card">
+        <h2>1 · Configure your backend</h2>
+        <p className="muted small" style={{ marginTop: 0 }}>Create a key in the <button className="btn btn-ghost btn-sm" onClick={onKeys} style={{ padding: "0 4px" }}>API Keys</button> tab (shown once), then put it in your server-side <span className="mono">.env</span>:</p>
+        <CodeBlock lang="env">{`GRAV_STORAGE_URL=${baseUrl}\nGRAV_STORAGE_API_KEY=gsk_live_...   # from the API Keys tab (server-side only)`}</CodeBlock>
+      </div>
+
+      <div className="card">
+        <h2>2 · Upload and store the fileId</h2>
+        <CodeBlock lang="node">{`import { GravStorage } from "@grav/storage-sdk";
+
+const storage = new GravStorage({
+  baseUrl: process.env.GRAV_STORAGE_URL,
+  apiKey: process.env.GRAV_STORAGE_API_KEY,
+});
+
+const file = await storage.files.upload("./invoice.pdf");
+// ✅ save file.fileId in YOUR database — NOT a filesystem path
+await db.attachments.insert({ fileId: file.fileId, name: file.name });`}</CodeBlock>
+      </div>
+
+      <div className="card">
+        <h2>3 · Retrieve it later</h2>
+        <CodeBlock lang="node">{`const meta = await storage.files.meta(fileId);
+await storage.files.download(fileId, "./out.pdf");   // streams
+const { stream, status } = await storage.files.get(fileId, { range: "bytes=0-1048575" }); // 206`}</CodeBlock>
+        <p className="small" style={{ marginTop: 12 }}>
+          Full reference — auth, scopes, the HTTP API, errors, examples and deployment — is in the{" "}
+          <a href="/docs" target="_blank" rel="noreferrer">Documentation center →</a>
+        </p>
       </div>
     </div>
   );

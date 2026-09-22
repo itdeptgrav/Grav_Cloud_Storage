@@ -50,6 +50,9 @@ export default function LoginPage() {
           No account? <a href="/signup">Create one</a>
         </p>
       )}
+      <p className="small muted" style={{ textAlign: "center", marginTop: 10 }}>
+        <a href="/docs">Developer documentation →</a>
+      </p>
     </div>
   );
 }

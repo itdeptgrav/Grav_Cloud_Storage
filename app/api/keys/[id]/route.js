@@ -3,11 +3,14 @@
 import { ok, fail } from "@/lib/http";
 import { requireUser } from "@/lib/auth/guards";
 import { loadKeyForUser, deleteKey } from "@/lib/services/apiKeyService";
+import { csrfGuard } from "@/lib/csrf";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function DELETE(request, { params }) {
+  const csrf = csrfGuard(request);
+  if (csrf) return csrf;
   const { user, error } = await requireUser();
   if (error) return error;
   const { id } = await params;

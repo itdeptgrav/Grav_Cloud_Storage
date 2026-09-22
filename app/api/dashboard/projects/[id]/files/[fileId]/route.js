@@ -5,6 +5,7 @@ import { ok, fail } from "@/lib/http";
 import { withLog, setLogCtx } from "@/lib/apiLog";
 import { requireProject } from "@/lib/dashboardAuth";
 import { loadActiveFile, trashFile } from "@/lib/services/fileService";
+import { csrfGuard } from "@/lib/csrf";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,6 +21,8 @@ export const GET = withLog("get-meta", async (request, { params }) => {
 });
 
 export const DELETE = withLog("delete", async (request, { params }) => {
+  const csrf = csrfGuard(request);
+  if (csrf) return csrf;
   const { id, fileId } = await params;
   const { project, error } = await requireProject(request, id);
   if (error) return error;

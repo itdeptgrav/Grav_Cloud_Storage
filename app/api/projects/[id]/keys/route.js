@@ -7,6 +7,7 @@ import { getProjectForUser } from "@/lib/services/projectService";
 import { createApiKey, listKeysForProject } from "@/lib/services/apiKeyService";
 import { recordAudit } from "@/lib/services/auditService";
 import { ipOf } from "@/lib/apiLog";
+import { csrfGuard } from "@/lib/csrf";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,6 +29,8 @@ export async function GET(request, { params }) {
 }
 
 export async function POST(request, { params }) {
+  const csrf = csrfGuard(request);
+  if (csrf) return csrf;
   const { user, project, error } = await loadProject(request, params);
   if (error) return error;
 

@@ -5,11 +5,14 @@ import { withLog, setLogCtx, ipOf } from "@/lib/apiLog";
 import { requireProject } from "@/lib/dashboardAuth";
 import { loadTrashedFile, restoreFile } from "@/lib/services/fileService";
 import { recordAudit } from "@/lib/services/auditService";
+import { csrfGuard } from "@/lib/csrf";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export const POST = withLog("restore", async (request, { params }) => {
+  const csrf = csrfGuard(request);
+  if (csrf) return csrf;
   const { id, fileId } = await params;
   const { user, project, error } = await requireProject(request, id);
   if (error) return error;

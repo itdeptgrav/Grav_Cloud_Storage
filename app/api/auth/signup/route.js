@@ -7,11 +7,14 @@ import { passwordProblem } from "@/lib/auth/password";
 import { signSession, sessionCookie } from "@/lib/auth/session";
 import { authRateLimit } from "@/lib/limits";
 import { ipOf, rateLimitResponse } from "@/lib/apiLog";
+import { csrfGuard } from "@/lib/csrf";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(request) {
+  const csrf = csrfGuard(request);
+  if (csrf) return csrf;
   const rl = authRateLimit(ipOf(request));
   if (!rl.ok) return rateLimitResponse(rl);
   if (!config.allowSignup) {

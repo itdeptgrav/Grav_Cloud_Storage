@@ -1,10 +1,26 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // Phase 0 keeps this minimal. Phase 2 introduces a custom Node server
-  // (server.js) that mounts raw streaming handlers for /api/v1/files* in front
-  // of Next — so large uploads/downloads and HTTP Range never pass through
-  // Next's body handling. Nothing here needs to change for that.
   reactStrictMode: true,
+
+  // Security headers for the UI (HTML) pages. NOT applied to /api/* — the file
+  // routes manage their own headers, and (crucially) the streamed /raw responses
+  // must remain frameable same-origin so PDF/video preview works.
+  async headers() {
+    return [
+      {
+        source: "/((?!api/).*)",
+        headers: [
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+          { key: "X-Frame-Options", value: "SAMEORIGIN" },
+          // frame-ancestors only — does not restrict scripts/styles, so Next's
+          // inline runtime keeps working; prevents the dashboard being framed.
+          { key: "Content-Security-Policy", value: "frame-ancestors 'self'" },
+          { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
+        ],
+      },
+    ];
+  },
 };
 
 export default nextConfig;

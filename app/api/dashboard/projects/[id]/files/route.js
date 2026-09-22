@@ -8,6 +8,7 @@ import { listFiles } from "@/lib/services/fileService";
 import { ingestUpload } from "@/lib/fileIngest";
 import { recordError } from "@/lib/services/usageService";
 import { acquireSlot } from "@/lib/limits";
+import { csrfGuard } from "@/lib/csrf";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,6 +22,8 @@ export const GET = withLog("list", async (request, { params }) => {
 });
 
 export const POST = withLog("upload", async (request, { params }) => {
+  const csrf = csrfGuard(request);
+  if (csrf) return csrf;
   const { id } = await params;
   const { user, project, error } = await requireProject(request, id);
   if (error) return error;

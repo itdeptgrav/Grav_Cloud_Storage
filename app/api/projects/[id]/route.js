@@ -7,6 +7,7 @@ import { requireUser } from "@/lib/auth/guards";
 import { getProjectForUser, updateProject, setProjectStatus } from "@/lib/services/projectService";
 import { recordAudit } from "@/lib/services/auditService";
 import { ipOf } from "@/lib/apiLog";
+import { csrfGuard } from "@/lib/csrf";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -27,6 +28,8 @@ export async function GET(request, { params }) {
 }
 
 export async function PATCH(request, { params }) {
+  const csrf = csrfGuard(request);
+  if (csrf) return csrf;
   const { user, project, error } = await load(request, params);
   if (error) return error;
 
@@ -69,6 +72,8 @@ export async function PATCH(request, { params }) {
 }
 
 export async function DELETE(request, { params }) {
+  const csrf = csrfGuard(request);
+  if (csrf) return csrf;
   const { project, error } = await load(request, params);
   if (error) return error;
   await setProjectStatus(project, "archived");

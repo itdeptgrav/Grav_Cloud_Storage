@@ -7,11 +7,14 @@ import { ok, fail } from "@/lib/http";
 import { requireUser } from "@/lib/auth/guards";
 import { verifyPassword, hashPassword, passwordProblem } from "@/lib/auth/password";
 import { signSession, sessionCookie } from "@/lib/auth/session";
+import { csrfGuard } from "@/lib/csrf";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(request) {
+  const csrf = csrfGuard(request);
+  if (csrf) return csrf;
   const { user, error } = await requireUser();
   if (error) return error;
 

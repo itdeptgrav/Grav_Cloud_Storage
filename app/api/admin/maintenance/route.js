@@ -7,11 +7,14 @@ import { requireAdmin } from "@/lib/auth/guards";
 import { cleanTempFiles, purgeExpiredTrash } from "@/lib/maintenance";
 import { recordAudit } from "@/lib/services/auditService";
 import { ipOf } from "@/lib/apiLog";
+import { csrfGuard } from "@/lib/csrf";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(request) {
+  const csrf = csrfGuard(request);
+  if (csrf) return csrf;
   const { user, error } = await requireAdmin();
   if (error) return error;
   const { action } = await request.json().catch(() => ({}));

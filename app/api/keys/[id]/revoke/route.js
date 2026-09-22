@@ -4,11 +4,14 @@ import { requireUser } from "@/lib/auth/guards";
 import { loadKeyForUser, revokeKey } from "@/lib/services/apiKeyService";
 import { recordAudit } from "@/lib/services/auditService";
 import { ipOf } from "@/lib/apiLog";
+import { csrfGuard } from "@/lib/csrf";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(request, { params }) {
+  const csrf = csrfGuard(request);
+  if (csrf) return csrf;
   const { user, error } = await requireUser();
   if (error) return error;
   const { id } = await params;
