@@ -1,4 +1,5 @@
 import "./globals.css";
+import { Toaster, ConfirmHost } from "@/components/ui";
 
 export const metadata = {
   title: "Grav Storage",
@@ -8,7 +9,11 @@ export const metadata = {
 export default function RootLayout({ children }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        {children}
+        <Toaster />
+        <ConfirmHost />
+      </body>
     </html>
   );
 }

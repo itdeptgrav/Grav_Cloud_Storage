@@ -2,15 +2,11 @@
 import { useEffect, useState } from "react";
 import { fmtBytes, fmtDate, timeAgo } from "@/lib/format";
 import { api } from "@/lib/clientApi";
-import { Button, Badge } from "@/components/ui";
+import { Button, Drawer, CopyButton, StatusBadge, confirmAction, toast } from "@/components/ui";
+import Icon from "@/components/icons";
 
-function KV({ k, v }) {
-  return (
-    <>
-      <dt>{k}</dt>
-      <dd>{v}</dd>
-    </>
-  );
+function Row({ k, v, mono }) {
+  return <><dt>{k}</dt><dd className={mono ? "mono" : ""}>{v}</dd></>;
 }
 
 function Preview({ projectId, file }) {
@@ -23,99 +19,64 @@ function Preview({ projectId, file }) {
     let alive = true;
     if (mime.startsWith("text/") && file.sizeBytes <= 256 * 1024) {
       fetch(raw, { credentials: "same-origin", headers: { Range: "bytes=0-262143" } })
-        .then((r) => (r.ok ? r.text() : Promise.reject()))
-        .then((t) => alive && setText(t))
-        .catch(() => alive && setTextErr(true));
+        .then((r) => (r.ok ? r.text() : Promise.reject())).then((t) => alive && setText(t)).catch(() => alive && setTextErr(true));
     }
-    return () => {
-      alive = false;
-    };
+    return () => { alive = false; };
   }, [raw, mime, file.sizeBytes]);
 
-  if (mime.startsWith("image/") && mime !== "image/svg+xml") {
-    // eslint-disable-next-line @next/next/no-img-element
-    return <div className="preview-box"><img src={raw} alt={file.name} /></div>;
-  }
-  if (mime.startsWith("video/")) {
-    return <div className="preview-box"><video src={raw} controls preload="metadata" /></div>;
-  }
-  if (mime.startsWith("audio/")) {
-    return <div className="preview-box"><audio src={raw} controls style={{ width: "100%" }} /></div>;
-  }
-  if (mime === "application/pdf") {
-    return <div className="preview-box"><iframe src={raw} title={file.name} /></div>;
-  }
-  if (mime.startsWith("text/")) {
-    if (textErr) return <div className="preview-box"><span className="muted small">Preview unavailable.</span></div>;
-    return <div className="preview-box"><pre>{text ?? "Loading…"}</pre></div>;
-  }
-  return (
-    <div className="preview-box">
-      <div className="muted" style={{ padding: 16 }}>Preview unavailable for this file type.</div>
-    </div>
-  );
+  if (mime.startsWith("image/") && mime !== "image/svg+xml") return <div className="preview-box"><img src={raw} alt={file.name} /></div>;
+  if (mime.startsWith("video/")) return <div className="preview-box"><video src={raw} controls preload="metadata" /></div>;
+  if (mime.startsWith("audio/")) return <div className="preview-box"><audio src={raw} controls /></div>;
+  if (mime === "application/pdf") return <div className="preview-box"><iframe src={raw} title={file.name} /></div>;
+  if (mime.startsWith("text/")) return <div className="preview-box">{textErr ? <span className="muted small">Preview unavailable.</span> : <pre>{text ?? "Loading…"}</pre>}</div>;
+  return <div className="preview-box" style={{ padding: 28 }}><Icon name="file" size={26} style={{ color: "var(--muted-2)" }} /><div className="muted small mt-1">No preview for this file type</div></div>;
 }
 
 export default function FileDetail({ projectId, file, onClose, onDeleted }) {
-  const [copied, setCopied] = useState(false);
   const [busy, setBusy] = useState(false);
   const dl = `/api/dashboard/projects/${projectId}/files/${file.fileId}/download`;
 
-  function copyId() {
-    try {
-      navigator.clipboard.writeText(file.fileId);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch {
-      /* clipboard blocked */
-    }
-  }
-
   async function del() {
-    if (!window.confirm(`Move "${file.name}" to Trash?`)) return;
+    const ok = await confirmAction({ title: "Move to trash?", subject: { name: file.name, meta: fmtBytes(file.sizeBytes) }, body: "The file is moved to trash and can be restored before it is purged.", confirmLabel: "Move to trash" });
+    if (!ok) return;
     setBusy(true);
-    try {
-      await api.del(`/api/dashboard/projects/${projectId}/files/${file.fileId}`);
-      onDeleted && onDeleted(file.fileId);
-      onClose();
-    } catch (e) {
-      alert(e.message);
-      setBusy(false);
-    }
+    try { await api.del(`/api/dashboard/projects/${projectId}/files/${file.fileId}`); toast.success("Moved to trash"); onDeleted && onDeleted(file.fileId); onClose(); }
+    catch (e) { toast.error(e.message); setBusy(false); }
   }
 
   return (
-    <>
-      <div className="drawer-backdrop" onClick={onClose} />
-      <div className="drawer">
-        <div className="between" style={{ marginBottom: 8 }}>
-          <h2 style={{ margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{file.name}</h2>
-          <button className="btn btn-ghost btn-sm" onClick={onClose}>✕</button>
-        </div>
+    <Drawer title={file.name} onClose={onClose} actions={<a className="btn btn-sm btn-subtle" href={dl}><Icon name="download" size={13} />Download</a>}>
+      <Preview projectId={projectId} file={file} />
 
-        <Preview projectId={projectId} file={file} />
+      <div className="eyebrow mt-3">General</div>
+      <dl className="kv">
+        <Row k="Type" v={file.mimeType} />
+        <Row k="Size" v={`${fmtBytes(file.sizeBytes)} · ${file.sizeBytes.toLocaleString()} bytes`} />
+        <Row k="Uploaded" v={<span title={new Date(file.createdAt).toLocaleString()}>{timeAgo(file.createdAt)} · {fmtDate(file.createdAt)}</span>} />
+        <Row k="Uploaded by" v={file.uploadedByLabel || "—"} />
+        <Row k="Status" v={<StatusBadge status={file.status} />} />
+      </dl>
 
-        <div className="row" style={{ gap: 8, margin: "12px 0" }}>
-          <a className="btn btn-sm" href={dl}>Download</a>
-          <Button size="sm" onClick={copyId}>{copied ? "Copied!" : "Copy File ID"}</Button>
-          <span className="spacer" />
-          <Button size="sm" variant="danger" onClick={del} disabled={busy}>Delete</Button>
-        </div>
+      <div className="eyebrow mt-3">Developer</div>
+      <dl className="kv">
+        <dt>File ID</dt>
+        <dd><div className="row" style={{ gap: 6 }}><span className="mono truncate" style={{ flex: 1 }}>{file.fileId}</span><CopyButton value={file.fileId} iconOnly toastMessage="File ID copied" /></div></dd>
+        <dt>SHA-256</dt>
+        <dd><div className="row" style={{ gap: 6 }}><span className="mono truncate small" style={{ flex: 1 }}>{file.checksumSha256}</span><CopyButton value={file.checksumSha256} iconOnly toastMessage="Checksum copied" /></div></dd>
+      </dl>
 
-        <dl className="kv">
-          <KV k="File ID" v={<span className="mono">{file.fileId}</span>} />
-          <KV k="Type" v={file.mimeType} />
-          <KV k="Size" v={`${fmtBytes(file.sizeBytes)} (${file.sizeBytes.toLocaleString()} bytes)`} />
-          <KV k="Uploaded" v={<span title={new Date(file.createdAt).toLocaleString()}>{timeAgo(file.createdAt)} · {fmtDate(file.createdAt)}</span>} />
-          <KV k="Uploaded by" v={file.uploadedByLabel || "—"} />
-          <KV k="SHA-256" v={<span className="mono small">{file.checksumSha256}</span>} />
-          <KV k="Downloads" v={file.downloads} />
-          <KV k="Bytes served" v={fmtBytes(file.bytesServed)} />
-          <KV k="Status" v={<Badge kind={file.status === "active" ? "active" : undefined}>{file.status}</Badge>} />
-          <KV k="Folder" v={file.folderPath?.length ? file.folderPath.join(" / ") : "—"} />
-          <KV k="Tags" v={file.tags?.length ? file.tags.join(", ") : "—"} />
-        </dl>
+      <div className="eyebrow mt-3">Usage</div>
+      <dl className="kv">
+        <Row k="Downloads" v={file.downloads} />
+        <Row k="Bytes served" v={fmtBytes(file.bytesServed)} />
+        <Row k="Folder" v={file.folderPath?.length ? file.folderPath.join(" / ") : "—"} />
+        <Row k="Tags" v={file.tags?.length ? file.tags.join(", ") : "—"} />
+      </dl>
+
+      <div className="row mt-3" style={{ gap: 8 }}>
+        <a className="btn btn-subtle btn-block" href={dl} style={{ flex: 1 }}><Icon name="download" size={15} />Download</a>
+        <Button variant="danger" icon="trash" loading={busy} onClick={del}>Delete</Button>
       </div>
-    </>
+    </Drawer>
   );
 }

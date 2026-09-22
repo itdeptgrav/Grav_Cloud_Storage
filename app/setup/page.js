@@ -1,7 +1,8 @@
 "use client";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/clientApi";
-import { Button, Field, Input, ErrorNote } from "@/components/ui";
+import { Button, Field, Input, ErrorNote, Loading, toast } from "@/components/ui";
+import AuthShell from "@/components/AuthShell";
 
 export default function SetupPage() {
   const [ready, setReady] = useState(false);
@@ -12,54 +13,26 @@ export default function SetupPage() {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    api
-      .get("/api/setup")
-      .then((d) => {
-        if (!d.needed) {
-          window.location.href = "/login"; // already set up
-        } else {
-          setReady(true);
-        }
-      })
-      .catch(() => setReady(true));
+    api.get("/api/setup").then((d) => { if (!d.needed) window.location.href = "/login"; else setReady(true); }).catch(() => setReady(true));
   }, []);
 
   async function submit(e) {
-    e.preventDefault();
-    setBusy(true);
-    setErr(null);
-    try {
-      await api.post("/api/setup", { name, email, password });
-      window.location.href = "/dashboard";
-    } catch (e2) {
-      setErr(e2.message);
-      setBusy(false);
-    }
+    e.preventDefault(); setBusy(true); setErr(null);
+    try { await api.post("/api/setup", { name, email, password }); toast.success("Super-admin created"); window.location.href = "/dashboard"; }
+    catch (e2) { setErr(e2.message); setBusy(false); }
   }
 
-  if (!ready) return <div className="center-narrow"><p className="muted">Loading…</p></div>;
+  if (!ready) return <div className="center-narrow"><Loading /></div>;
 
   return (
-    <div className="center-narrow">
-      <h1>First-time setup</h1>
-      <p className="muted" style={{ marginTop: 0 }}>Create the Grav Storage super-admin.</p>
-      <div className="card" style={{ marginTop: 18 }}>
-        <form onSubmit={submit}>
-          <ErrorNote>{err}</ErrorNote>
-          <Field label="Name">
-            <Input value={name} onChange={(e) => setName(e.target.value)} autoFocus required />
-          </Field>
-          <Field label="Email">
-            <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
-          </Field>
-          <Field label="Password">
-            <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
-          </Field>
-          <Button variant="primary" disabled={busy} style={{ width: "100%" }}>
-            {busy ? "Creating…" : "Create super-admin"}
-          </Button>
-        </form>
-      </div>
-    </div>
+    <AuthShell title="First-time setup" subtitle="Create the Grav Storage super-admin account">
+      <form onSubmit={submit}>
+        <ErrorNote>{err}</ErrorNote>
+        <Field label="Name"><Input value={name} onChange={(e) => setName(e.target.value)} autoFocus required /></Field>
+        <Field label="Email"><Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required /></Field>
+        <Field label="Password" hint="Use a strong password — you can change it later in Account."><Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required /></Field>
+        <Button variant="primary" loading={busy} className="btn-block">Create super-admin</Button>
+      </form>
+    </AuthShell>
   );
 }

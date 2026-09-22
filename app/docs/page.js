@@ -59,31 +59,33 @@ export default function DocsPage() {
 
   return (
     <>
-      <div className="docs-topbar">
-        <div className="docs-topbar-inner">
-          <a href="/" className="brand" style={{ color: "var(--text)" }}>Grav Storage</a>
+      <div className="topbar">
+        <div className="topbar-inner">
+          <a href="/" className="brand row" style={{ color: "var(--text)", gap: 9 }}><span className="gs-logo" style={{ width: 24, height: 24, fontSize: 13 }}>G</span> Grav Storage</a>
           <span className="badge">Docs</span>
           <span className="spacer" />
           <a href="/dashboard" className="btn btn-ghost btn-sm">Dashboard</a>
-          <a href="/login" className="btn btn-sm">Sign in</a>
+          <a href="/login" className="btn btn-primary btn-sm">Sign in</a>
         </div>
       </div>
-      <div className="docs-wrap">
-        <nav className="docs-nav">
-          {NAV.map(([group, items]) => (
-            <div key={group}>
-              <div className="grp">{group}</div>
-              {items.map(([id, label]) => (
-                <a key={id} className={active === id ? "on" : ""} onClick={() => go(id)}>{label}</a>
-              ))}
-            </div>
-          ))}
-        </nav>
-        <main className="docs-main">
-          {SECTIONS[active] ? SECTIONS[active]() : SECTIONS.intro()}
-          <hr className="hr" style={{ marginTop: 36 }} />
-          <p className="muted small">Grav Storage · self-hosted object storage · API v1</p>
-        </main>
+      <div className="container" style={{ paddingTop: 0, maxWidth: 1120 }}>
+        <div className="docs-shell">
+          <nav className="docs-nav">
+            {NAV.map(([group, items]) => (
+              <div key={group}>
+                <div className="grp">{group}</div>
+                {items.map(([id, label]) => (
+                  <a key={id} className={active === id ? "on" : ""} onClick={() => go(id)}>{label}</a>
+                ))}
+              </div>
+            ))}
+          </nav>
+          <main className="docs-main">
+            {SECTIONS[active] ? SECTIONS[active]() : SECTIONS.intro()}
+            <hr className="hr" style={{ marginTop: 36 }} />
+            <p className="muted small">Grav Storage · self-hosted object storage · API v1</p>
+          </main>
+        </div>
       </div>
     </>
   );
