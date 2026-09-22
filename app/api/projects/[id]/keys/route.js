@@ -5,6 +5,8 @@ import { ok, fail } from "@/lib/http";
 import { requireUser } from "@/lib/auth/guards";
 import { getProjectForUser } from "@/lib/services/projectService";
 import { createApiKey, listKeysForProject } from "@/lib/services/apiKeyService";
+import { recordAudit } from "@/lib/services/auditService";
+import { ipOf } from "@/lib/apiLog";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -43,6 +45,7 @@ export async function POST(request, { params }) {
       scopes: body.scopes,
       createdByUserId: user._id,
     });
+    recordAudit({ user, action: "key.create", targetType: "apiKey", targetId: String(record._id), projectId: project._id, details: { name: record.name, env: record.env, scopes: record.scopes }, ip: ipOf(request) });
     // rawKey is returned ONCE. It is never stored and never logged.
     return ok({ key: record.toNode(), secret: rawKey }, { status: 201 });
   } catch (e) {

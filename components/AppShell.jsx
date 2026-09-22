@@ -19,6 +19,12 @@ export default function AppShell({ user, children }) {
             Grav Storage
           </a>
           <span className="spacer" />
+          {user.role === "superadmin" && (
+            <>
+              <a href="/admin/maintenance" className="btn btn-ghost btn-sm">Maintenance</a>
+              <a href="/admin/logs" className="btn btn-ghost btn-sm">Logs</a>
+            </>
+          )}
           <span className="small muted">{user.email}</span>
           <span className={`badge ${user.role === "superadmin" ? "badge-role" : ""}`}>{user.role}</span>
           <a href="/account" className="btn btn-ghost btn-sm">Account</a>

@@ -1,57 +1,54 @@
 // /api/v1/files  (machine plane — API key)
-//   POST → upload (scope files:write) — STREAMED, via the shared ingest engine
-//   GET  → list  (scope files:list)   — paginated, project-scoped, active only
+//   POST → upload (scope files:write) — streamed, quota-gated, concurrency-slotted
+//   GET  → list  (scope files:list)
 import { ok, fail } from "@/lib/http";
 import config from "@/lib/config";
+import { withLog } from "@/lib/apiLog";
 import { authenticateApiKey } from "@/lib/apiKeyAuth";
 import { ingestUpload } from "@/lib/fileIngest";
 import { recordError } from "@/lib/services/usageService";
 import { listFiles } from "@/lib/services/fileService";
+import { acquireSlot } from "@/lib/limits";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function POST(request) {
+export const POST = withLog("upload", async (request) => {
   const t0 = process.hrtime.bigint();
-  const authStart = process.hrtime.bigint();
   const auth = await authenticateApiKey(request, "files:write");
-  const authMs = Number(process.hrtime.bigint() - authStart) / 1e6;
   if (auth.error) return auth.error;
   const { key, project } = auth;
 
-  const r = await ingestUpload(request, { project, apiKey: key });
-  if (!r.ok) {
-    recordError(project, key);
-    return fail(r.code, r.message);
+  const slot = acquireSlot("upload", project._id);
+  if (!slot.ok) return fail("TOO_MANY_CONCURRENT_TRANSFERS", `Too many concurrent uploads for this project (max ${slot.limit}).`);
+  try {
+    const r = await ingestUpload(request, { project, apiKey: key });
+    if (!r.ok) {
+      recordError(project, key);
+      return fail(r.code, r.message);
+    }
+    const doc = r.doc;
+    const res = ok(
+      { fileId: doc.fileId, name: doc.originalName, mimeType: doc.mimeType, extension: doc.extension, sizeBytes: doc.sizeBytes, checksumSha256: doc.checksumSha256, createdAt: doc.createdAt },
+      { status: 201 },
+    );
+    if (config.perfHeaders) {
+      const totalMs = Number(process.hrtime.bigint() - t0) / 1e6;
+      res.headers.set("Server-Timing", `total;dur=${totalMs.toFixed(1)}`);
+      res.headers.set("Timing-Allow-Origin", "*");
+      res.headers.set("Access-Control-Expose-Headers", "Server-Timing");
+    }
+    return res;
+  } finally {
+    slot.release();
   }
-  const doc = r.doc;
-  const res = ok(
-    {
-      fileId: doc.fileId,
-      name: doc.originalName,
-      mimeType: doc.mimeType,
-      extension: doc.extension,
-      sizeBytes: doc.sizeBytes,
-      checksumSha256: doc.checksumSha256,
-      createdAt: doc.createdAt,
-    },
-    { status: 201 },
-  );
-  if (config.perfHeaders) {
-    const totalMs = Number(process.hrtime.bigint() - t0) / 1e6;
-    res.headers.set("Server-Timing", `auth;dur=${authMs.toFixed(1)}, total;dur=${totalMs.toFixed(1)}`);
-    res.headers.set("Timing-Allow-Origin", "*");
-    res.headers.set("Access-Control-Expose-Headers", "Server-Timing");
-  }
-  return res;
-}
+});
 
-export async function GET(request) {
+export const GET = withLog("list", async (request) => {
   const auth = await authenticateApiKey(request, "files:list");
   if (auth.error) return auth.error;
   const url = new URL(request.url);
   const params = Object.fromEntries(url.searchParams.entries());
-  delete params.status; // the machine list is active-only
-  const data = await listFiles(auth.project, params);
-  return ok(data);
-}
+  delete params.status; // machine list is active-only
+  return ok(await listFiles(auth.project, params));
+});

@@ -5,11 +5,15 @@ import config from "@/lib/config";
 import { findByEmail, createUser } from "@/lib/services/userService";
 import { passwordProblem } from "@/lib/auth/password";
 import { signSession, sessionCookie } from "@/lib/auth/session";
+import { authRateLimit } from "@/lib/limits";
+import { ipOf, rateLimitResponse } from "@/lib/apiLog";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(request) {
+  const rl = authRateLimit(ipOf(request));
+  if (!rl.ok) return rateLimitResponse(rl);
   if (!config.allowSignup) {
     return fail("SIGNUP_DISABLED", "Public signup is disabled on this server.");
   }

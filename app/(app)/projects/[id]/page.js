@@ -18,6 +18,7 @@ export default function ProjectPage() {
   const [tab, setTab] = useState("overview");
   const [project, setProject] = useState(null);
   const [keys, setKeys] = useState(null);
+  const [me, setMe] = useState(null);
   const [notFound, setNotFound] = useState(false);
 
   const loadProject = useCallback(async () => {
@@ -41,6 +42,7 @@ export default function ProjectPage() {
   useEffect(() => {
     loadProject();
     loadKeys();
+    api.get("/api/auth/me").then((d) => setMe(d.user)).catch(() => {});
   }, [loadProject, loadKeys]);
 
   if (notFound) {
@@ -66,7 +68,7 @@ export default function ProjectPage() {
       </div>
 
       <div className="tabs">
-        {[["overview", "Overview"], ["files", "Files"], ["keys", "API Keys"], ["usage", "Usage"], ["settings", "Settings"]].map(([t, label]) => (
+        {[["overview", "Overview"], ["files", "Files"], ["keys", "API Keys"], ["usage", "Usage"], ["requests", "Requests"], ["settings", "Settings"]].map(([t, label]) => (
           <button key={t} className={`tab ${tab === t ? "tab-active" : ""}`} onClick={() => setTab(t)}>
             {label}
           </button>
@@ -77,7 +79,8 @@ export default function ProjectPage() {
       {tab === "files" && <FileManager projectId={project.id} onChanged={loadProject} />}
       {tab === "keys" && <KeysTab project={project} keys={keys} reload={loadKeys} />}
       {tab === "usage" && <UsageTab project={project} keys={keys} />}
-      {tab === "settings" && <SettingsTab project={project} onChange={loadProject} />}
+      {tab === "requests" && <RequestsTab project={project} keys={keys} />}
+      {tab === "settings" && <SettingsTab project={project} me={me} onChange={loadProject} />}
     </>
   );
 }
@@ -124,10 +127,61 @@ function Overview({ project, keys }) {
   );
 }
 
+function AnalyticsSection({ projectId }) {
+  const [days, setDays] = useState(7);
+  const [data, setData] = useState(null);
+  useEffect(() => {
+    setData(null);
+    api.get(`/api/dashboard/projects/${projectId}/analytics?days=${days}`).then(setData).catch(() => setData({ series: [], totals: {} }));
+  }, [projectId, days]);
+  const t = data?.totals || {};
+  const max = Math.max(1, ...(data?.series || []).map((d) => d.requests));
+  return (
+    <div className="card" style={{ marginBottom: 14 }}>
+      <div className="between" style={{ marginBottom: 10 }}>
+        <h2 style={{ margin: 0 }}>Analytics</h2>
+        <div className="row" style={{ gap: 4 }}>
+          {[[1, "24h"], [7, "7 days"], [30, "30 days"]].map(([d, l]) => (
+            <button key={d} className={`chip ${days === d ? "chip-active" : ""}`} onClick={() => setDays(d)}>{l}</button>
+          ))}
+        </div>
+      </div>
+      {!data ? (
+        <p className="muted">Loading…</p>
+      ) : (
+        <>
+          <div className="grid grid-cards" style={{ marginBottom: 12 }}>
+            <Stat label="Requests" value={t.requests ?? 0} />
+            <Stat label="Uploads" value={t.uploads ?? 0} />
+            <Stat label="Downloads" value={t.downloads ?? 0} />
+            <Stat label="Uploaded Data" value={fmtBytes(t.bytesUp ?? 0)} />
+            <Stat label="Downloaded Data" value={fmtBytes(t.bytesDown ?? 0)} />
+            <Stat label="Error Rate" value={`${((t.errorRate ?? 0) * 100).toFixed(1)}%`} />
+          </div>
+          {data.series?.length ? (
+            <div style={{ display: "flex", alignItems: "flex-end", gap: 4, height: 90 }}>
+              {data.series.map((d) => (
+                <div key={d.date} title={`${d.date}: ${d.requests} requests, ${d.errors} errors`} style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "flex-end", alignItems: "center" }}>
+                  <div style={{ width: "100%", height: `${(d.requests / max) * 70}px`, minHeight: d.requests ? 3 : 0, background: d.errors ? "var(--warn)" : "var(--accent)", borderRadius: "3px 3px 0 0" }} />
+                  <span className="muted" style={{ fontSize: 9, marginTop: 4 }}>{d.date.slice(5)}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="muted small">No activity recorded in this range yet.</p>
+          )}
+          <p className="muted small" style={{ marginTop: 8 }}>Daily rollups (survive request-log expiry). Bars show requests/day; amber = day had errors.</p>
+        </>
+      )}
+    </div>
+  );
+}
+
 function UsageTab({ project, keys }) {
   const c = project.counters || {};
   return (
     <>
+      <AnalyticsSection projectId={project.id} />
       <div className="grid grid-cards">
         <Stat label="Current Storage" value={fmtBytes(project.currentStorageBytes)} />
         <Stat label="File Count" value={project.fileCount} />
@@ -173,6 +227,73 @@ function UsageTab({ project, keys }) {
       <p className="muted small" style={{ marginTop: 10 }}>
         Dashboard (human) uploads/downloads count toward the project totals but not toward any API key.
       </p>
+    </>
+  );
+}
+
+function RequestsTab({ project, keys }) {
+  const [logs, setLogs] = useState(null);
+  const [total, setTotal] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
+  const [page, setPage] = useState(1);
+  const [method, setMethod] = useState("");
+  const [status, setStatus] = useState("");
+  const [errorsOnly, setErrorsOnly] = useState(false);
+  const [keyId, setKeyId] = useState("");
+
+  useEffect(() => {
+    setLogs(null);
+    const p = new URLSearchParams({ page: String(page), limit: "50" });
+    if (method) p.set("method", method);
+    if (status) p.set("status", status);
+    if (errorsOnly) p.set("errors", "1");
+    if (keyId) p.set("apiKeyId", keyId);
+    api.get(`/api/dashboard/projects/${project.id}/requests?${p}`).then((d) => { setLogs(d.logs); setTotal(d.total); setHasMore(d.hasMore); }).catch(() => setLogs([]));
+  }, [project.id, method, status, errorsOnly, keyId, page]);
+  useEffect(() => { setPage(1); }, [method, status, errorsOnly, keyId]);
+
+  return (
+    <>
+      <div className="toolbar">
+        <select className="select" value={method} onChange={(e) => setMethod(e.target.value)}>
+          <option value="">All methods</option>{["GET", "POST", "HEAD", "DELETE"].map((m) => <option key={m}>{m}</option>)}
+        </select>
+        <select className="select" value={keyId} onChange={(e) => setKeyId(e.target.value)}>
+          <option value="">All API keys</option>{(keys || []).map((k) => <option key={k.id} value={k.id}>{k.name}</option>)}
+        </select>
+        <input className="input input-sm" placeholder="status (e.g. 200)" value={status} onChange={(e) => setStatus(e.target.value)} style={{ width: 130 }} />
+        <label className="check"><input type="checkbox" checked={errorsOnly} onChange={(e) => setErrorsOnly(e.target.checked)} /> Errors only</label>
+      </div>
+      {logs === null && <div className="state"><span className="spinner" /> Loading…</div>}
+      {logs && logs.length === 0 && <div className="state">No requests logged for this filter yet.</div>}
+      {logs && logs.length > 0 && (
+        <div className="card" style={{ padding: 0, overflowX: "auto" }}>
+          <table className="table">
+            <thead><tr><th>Time</th><th>Actor</th><th>Method</th><th>Operation</th><th>Status</th><th>Duration</th><th>Transferred</th><th>File</th></tr></thead>
+            <tbody>
+              {logs.map((l) => (
+                <tr key={l.id}>
+                  <td className="small muted" title={new Date(l.ts).toLocaleString()}>{timeAgo(l.ts)}</td>
+                  <td className="small"><Badge>{l.actorType}</Badge> {l.actor}</td>
+                  <td className="small">{l.method}</td>
+                  <td className="small muted">{l.operation}</td>
+                  <td className="small"><span style={{ color: l.status >= 400 ? "var(--down)" : "var(--up)" }}>{l.status}</span>{l.errorCode ? ` ${l.errorCode}` : ""}</td>
+                  <td className="small">{Math.round(l.durationMs)}ms</td>
+                  <td className="small">{fmtBytes((l.bytesIn || 0) + (l.bytesOut || 0))}</td>
+                  <td className="small mono">{l.fileId ? l.fileId.slice(0, 14) + "…" : "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {logs && total > 50 && (
+        <div className="row" style={{ justifyContent: "flex-end", gap: 10, marginTop: 12 }}>
+          <span className="small muted">Page {page} · {total} requests</span>
+          <Button size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>Prev</Button>
+          <Button size="sm" disabled={!hasMore} onClick={() => setPage((p) => p + 1)}>Next</Button>
+        </div>
+      )}
     </>
   );
 }
@@ -360,12 +481,67 @@ function RevealModal({ reveal, onClose, baseUrl }) {
   );
 }
 
-function SettingsTab({ project, onChange }) {
+function QuotaCard({ project, isAdmin, onChange }) {
+  const used = project.currentStorageBytes || 0;
+  const quota = project.quotaBytes;
+  const pct = quota ? Math.min(100, (used / quota) * 100) : 0;
+  const [unlimited, setUnlimited] = useState(quota == null);
+  const [gb, setGb] = useState(quota ? (quota / (1024 * 1024 * 1024)).toString() : "100");
+  const [msg, setMsg] = useState(null);
+  const [busy, setBusy] = useState(false);
+
+  async function save() {
+    setBusy(true);
+    setMsg(null);
+    try {
+      const quotaBytes = unlimited ? null : Math.round(parseFloat(gb) * 1024 * 1024 * 1024);
+      await api.patch(`/api/projects/${project.id}`, { quotaBytes });
+      setMsg("Quota updated.");
+      await onChange();
+    } catch (e) {
+      setMsg(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="card">
+      <h2>Storage quota</h2>
+      <p className="muted small" style={{ marginTop: 0 }}>
+        {quota == null ? (
+          <>Unlimited — {fmtBytes(used)} used.</>
+        ) : (
+          <>{fmtBytes(used)} / {fmtBytes(quota)} ({pct.toFixed(1)}%)</>
+        )}
+      </p>
+      {quota != null && <div className="meter" style={{ marginBottom: 10 }}><i className={pct >= 90 ? "warn" : ""} style={{ width: `${pct}%` }} /></div>}
+      {isAdmin ? (
+        <>
+          <label className="check" style={{ marginBottom: 8 }}>
+            <input type="checkbox" checked={unlimited} onChange={(e) => setUnlimited(e.target.checked)} /> Unlimited
+          </label>
+          {!unlimited && (
+            <Field label="Quota (GB)"><Input type="number" min="0" step="0.1" value={gb} onChange={(e) => setGb(e.target.value)} style={{ maxWidth: 160 }} /></Field>
+          )}
+          {msg && <div className="notice notice-ok" style={{ margin: "8px 0" }}>{msg}</div>}
+          <Button variant="primary" size="sm" disabled={busy} onClick={save}>{busy ? "Saving…" : "Save quota"}</Button>
+        </>
+      ) : (
+        <p className="muted small">Only a super-admin can change the quota.</p>
+      )}
+    </div>
+  );
+}
+
+function SettingsTab({ project, me, onChange }) {
+  const isAdmin = me?.role === "superadmin";
   const [name, setName] = useState(project.name);
   const [desc, setDesc] = useState(project.description || "");
   const [err, setErr] = useState(null);
   const [msg, setMsg] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   async function save(e) {
     e.preventDefault();
@@ -402,6 +578,20 @@ function SettingsTab({ project, onChange }) {
           <Button variant="primary" disabled={busy}>{busy ? "Saving…" : "Save changes"}</Button>
         </form>
       </div>
+
+      <div className="card">
+        <h2>Details</h2>
+        <dl className="kv">
+          <dt>Project ID</dt>
+          <dd>
+            <span className="mono small">{project.id}</span>{" "}
+            <button className="btn btn-ghost btn-sm" onClick={() => { try { navigator.clipboard.writeText(project.id); setCopied(true); setTimeout(() => setCopied(false), 1200); } catch {} }}>{copied ? "Copied!" : "Copy"}</button>
+          </dd>
+          <dt>Created</dt><dd>{fmtDate(project.createdAt)}</dd>
+        </dl>
+      </div>
+
+      <QuotaCard project={project} isAdmin={isAdmin} onChange={onChange} />
 
       <div className="card">
         <h2>Status</h2>

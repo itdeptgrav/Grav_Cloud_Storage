@@ -7,7 +7,12 @@
     "dev": "next dev -p 4000",
     "build": "next build",
     "start": "next start -p 4000",
-    "check:mongo": "node scripts/check-mongo.mjs"
+    "check:mongo": "node scripts/check-mongo.mjs",
+    "storage:integrity": "node --import ./scripts/alias-register.mjs scripts/storage-maintenance.mjs integrity",
+    "storage:reconcile": "node --import ./scripts/alias-register.mjs scripts/storage-maintenance.mjs reconcile",
+    "storage:cleanup": "node --import ./scripts/alias-register.mjs scripts/storage-maintenance.mjs cleanup",
+    "storage:purge-trash": "node --import ./scripts/alias-register.mjs scripts/storage-maintenance.mjs purge-trash",
+    "maintenance": "node --import ./scripts/alias-register.mjs scripts/storage-maintenance.mjs all"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

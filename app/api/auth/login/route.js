@@ -4,11 +4,15 @@
 import { ok, fail } from "@/lib/http";
 import { authenticate } from "@/lib/services/userService";
 import { signSession, sessionCookie } from "@/lib/auth/session";
+import { authRateLimit } from "@/lib/limits";
+import { ipOf, rateLimitResponse } from "@/lib/apiLog";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(request) {
+  const rl = authRateLimit(ipOf(request));
+  if (!rl.ok) return rateLimitResponse(rl);
   let body = {};
   try {
     body = await request.json();

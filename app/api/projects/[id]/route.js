@@ -5,6 +5,8 @@
 import { ok, fail } from "@/lib/http";
 import { requireUser } from "@/lib/auth/guards";
 import { getProjectForUser, updateProject, setProjectStatus } from "@/lib/services/projectService";
+import { recordAudit } from "@/lib/services/auditService";
+import { ipOf } from "@/lib/apiLog";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -25,7 +27,7 @@ export async function GET(request, { params }) {
 }
 
 export async function PATCH(request, { params }) {
-  const { project, error } = await load(request, params);
+  const { user, project, error } = await load(request, params);
   if (error) return error;
 
   let body = {};
@@ -36,7 +38,24 @@ export async function PATCH(request, { params }) {
   }
 
   try {
-    if (body.status !== undefined) await setProjectStatus(project, body.status);
+    // Quota is SUPER-ADMIN ONLY — a normal user cannot grant themselves storage.
+    if (body.quotaBytes !== undefined) {
+      if (user.role !== "superadmin") return fail("FORBIDDEN", "Only a super-admin can change a project's quota.");
+      let q = body.quotaBytes;
+      if (q === null || q === "" || q === 0) q = null; // unlimited
+      else {
+        q = Number(q);
+        if (!Number.isFinite(q) || q < 0) return fail("VALIDATION_ERROR", "quotaBytes must be a non-negative number or null.");
+      }
+      const prev = project.quotaBytes;
+      project.quotaBytes = q;
+      await project.save();
+      recordAudit({ user, action: "quota.change", targetType: "project", targetId: String(project._id), projectId: project._id, details: { from: prev, to: q }, ip: ipOf(request) });
+    }
+    if (body.status !== undefined) {
+      await setProjectStatus(project, body.status);
+      recordAudit({ user, action: `project.${body.status}`, targetType: "project", targetId: String(project._id), projectId: project._id, ip: ipOf(request) });
+    }
     if (body.name !== undefined || body.description !== undefined) {
       if (body.name !== undefined && !String(body.name).trim()) {
         return fail("VALIDATION_ERROR", "Project name cannot be empty.");

@@ -132,6 +132,26 @@ export default function FileManager({ projectId, onChanged }) {
     }
   }
 
+  async function restore(file) {
+    try {
+      await api.post(`/api/dashboard/projects/${projectId}/files/${file.fileId}/restore`);
+      load();
+      onChanged && onChanged();
+    } catch (e) {
+      alert(e.message);
+    }
+  }
+  async function purge(file) {
+    if (!window.confirm(`Permanently delete "${file.name}"? The bytes are removed and this cannot be undone.`)) return;
+    try {
+      await api.del(`/api/dashboard/projects/${projectId}/files/${file.fileId}/purge`);
+      load();
+      onChanged && onChanged();
+    } catch (e) {
+      alert(e.message);
+    }
+  }
+
   const activeUploads = uploads.filter((u) => u.status === "uploading").length;
 
   return (
@@ -262,13 +282,19 @@ export default function FileManager({ projectId, onChanged }) {
       {files && files.length > 0 && trash && (
         <div className="card" style={{ padding: 0, overflowX: "auto" }}>
           <table className="table">
-            <thead><tr><th>Name</th><th>Size</th><th>Deleted At</th></tr></thead>
+            <thead><tr><th>Name</th><th>Size</th><th>Deleted At</th><th></th></tr></thead>
             <tbody>
               {files.map((f) => (
                 <tr key={f.fileId}>
                   <td><div className="name-cell"><span className="ftype">{typeLabel(f)}</span><span className="nm">{f.name}</span></div></td>
                   <td className="small">{fmtBytes(f.sizeBytes)}</td>
                   <td className="small muted" title={f.trashedAt ? new Date(f.trashedAt).toLocaleString() : ""}>{f.trashedAt ? timeAgo(f.trashedAt) + " · " + fmtDate(f.trashedAt) : "—"}</td>
+                  <td>
+                    <div className="row" style={{ gap: 6, justifyContent: "flex-end" }}>
+                      <Button size="sm" onClick={() => restore(f)}>Restore</Button>
+                      <Button size="sm" variant="danger" onClick={() => purge(f)}>Delete forever</Button>
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>

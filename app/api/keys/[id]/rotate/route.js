@@ -5,6 +5,8 @@
 import { ok, fail } from "@/lib/http";
 import { requireUser } from "@/lib/auth/guards";
 import { loadKeyForUser, rotateKey } from "@/lib/services/apiKeyService";
+import { recordAudit } from "@/lib/services/auditService";
+import { ipOf } from "@/lib/apiLog";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,6 +20,7 @@ export async function POST(request, { params }) {
   if (key.status === "revoked") return fail("CONFLICT", "Cannot rotate a revoked key.");
 
   const { record, rawKey, oldKeyId } = await rotateKey(key, { createdByUserId: user._id });
+  recordAudit({ user, action: "key.rotate", targetType: "apiKey", targetId: oldKeyId, projectId: key.projectId, details: { newKeyId: String(record._id) }, ip: ipOf(request) });
   return ok(
     {
       key: record.toNode(),
