@@ -6,6 +6,7 @@ import { readSession } from "@/lib/auth/session";
 import { connectDB } from "@/lib/db/mongoose";
 import User from "@/lib/db/models/User";
 import AppShell from "@/components/AppShell";
+import ForceChangeGate from "@/components/ForceChangeGate";
 
 export const dynamic = "force-dynamic";
 
@@ -15,5 +16,10 @@ export default async function AppLayout({ children }) {
   await connectDB();
   const user = await User.findById(session.id);
   if (!user || user.status !== "active") redirect("/login");
-  return <AppShell user={user.toSafeJSON()}>{children}</AppShell>;
+  const safe = user.toSafeJSON();
+  return (
+    <AppShell user={safe}>
+      <ForceChangeGate mustChange={safe.mustChangePassword}>{children}</ForceChangeGate>
+    </AppShell>
+  );
 }

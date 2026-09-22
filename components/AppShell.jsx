@@ -21,6 +21,7 @@ export default function AppShell({ user, children }) {
           <span className="spacer" />
           <span className="small muted">{user.email}</span>
           <span className={`badge ${user.role === "superadmin" ? "badge-role" : ""}`}>{user.role}</span>
+          <a href="/account" className="btn btn-ghost btn-sm">Account</a>
           <button className="btn btn-ghost btn-sm" onClick={logout}>
             Logout
           </button>
