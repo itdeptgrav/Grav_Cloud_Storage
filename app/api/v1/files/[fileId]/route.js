@@ -8,10 +8,10 @@
 import { fail, ok } from "@/lib/http";
 import config from "@/lib/config";
 import { authenticateApiKey } from "@/lib/apiKeyAuth";
-import { loadActiveFile } from "@/lib/services/fileService";
+import { loadActiveFile, trashFile } from "@/lib/services/fileService";
 import { serveFile } from "@/lib/fileHttp";
 import getStorageProvider from "@/lib/storage/provider";
-import { recordDownload, recordTrash, recordError } from "@/lib/services/usageService";
+import { recordDownload, recordError } from "@/lib/services/usageService";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -86,21 +86,6 @@ export async function DELETE(request, { params }) {
   const file = await loadActiveFile(project, fileId);
   if (!file) return fail("FILE_NOT_FOUND", "File not found.");
 
-  // DB first: the file leaves listings/reads immediately (status gate). Then
-  // move the bytes to trash/. If the move fails the record is still trashed and
-  // the stray bytes are logged for the integrity checker.
-  const bytes = file.sizeBytes;
-  file.status = "trashed";
-  file.trashedAt = new Date();
-  await file.save();
-
-  try {
-    const moved = await getStorageProvider().moveToTrash(file.storageKey);
-    if (!moved) console.warn("[v1/delete] physical object already missing for", file.fileId);
-  } catch (e) {
-    console.error("[v1/delete] moveToTrash failed (record trashed, bytes stray):", e?.message);
-  }
-
-  recordTrash(project, bytes);
+  await trashFile(project, file); // shared soft-delete (DB first, then bytes→trash)
   return ok({ fileId: file.fileId, status: "trashed", trashedAt: file.trashedAt });
 }

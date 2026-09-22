@@ -4,6 +4,7 @@ import { useParams } from "next/navigation";
 import { api } from "@/lib/clientApi";
 import { fmtBytes, timeAgo, fmtDate } from "@/lib/format";
 import { Button, Field, Input, Modal, ErrorNote, Badge, Copyable } from "@/components/ui";
+import FileManager from "@/components/files/FileManager";
 
 const ALL_SCOPES = [
   ["files:read", "Read files"],
@@ -65,7 +66,7 @@ export default function ProjectPage() {
       </div>
 
       <div className="tabs">
-        {[["overview", "Overview"], ["keys", "API Keys"], ["settings", "Settings"]].map(([t, label]) => (
+        {[["overview", "Overview"], ["files", "Files"], ["keys", "API Keys"], ["usage", "Usage"], ["settings", "Settings"]].map(([t, label]) => (
           <button key={t} className={`tab ${tab === t ? "tab-active" : ""}`} onClick={() => setTab(t)}>
             {label}
           </button>
@@ -73,7 +74,9 @@ export default function ProjectPage() {
       </div>
 
       {tab === "overview" && <Overview project={project} keys={keys} />}
+      {tab === "files" && <FileManager projectId={project.id} onChanged={loadProject} />}
       {tab === "keys" && <KeysTab project={project} keys={keys} reload={loadKeys} />}
+      {tab === "usage" && <UsageTab project={project} keys={keys} />}
       {tab === "settings" && <SettingsTab project={project} onChange={loadProject} />}
     </>
   );
@@ -89,19 +92,86 @@ function Stat({ label, value }) {
 }
 
 function Overview({ project, keys }) {
+  const c = project.counters || {};
   const activeKeys = (keys || []).filter((k) => k.status === "active").length;
   return (
     <>
       <div className="grid grid-cards">
-        <Stat label="Storage Used" value={fmtBytes(project.currentStorageBytes)} />
-        <Stat label="Files" value={project.fileCount} />
+        <Stat label="Current Storage" value={fmtBytes(project.currentStorageBytes)} />
+        <Stat label="File Count" value={project.fileCount} />
+        <Stat label="Uploads" value={c.uploads ?? 0} />
+        <Stat label="Downloads" value={c.downloads ?? 0} />
+        <Stat label="Uploaded Data" value={fmtBytes(c.bytesUp ?? 0)} />
+        <Stat label="Downloaded Data" value={fmtBytes(c.bytesDown ?? 0)} />
+        <Stat label="API Requests" value={c.requests ?? 0} />
         <Stat label="API Keys (active)" value={activeKeys} />
-        <Stat label="Requests" value={project.counters?.requests ?? 0} />
-        <Stat label="Uploads" value={project.counters?.uploads ?? 0} />
-        <Stat label="Downloads" value={project.counters?.downloads ?? 0} />
       </div>
-      <p className="muted small" style={{ marginTop: 14 }}>
-        Files, uploads, downloads and bandwidth start counting once the storage API (Phase 2) is live.
+      <div className="card" style={{ marginTop: 14 }}>
+        <h2>Project</h2>
+        <dl className="kv">
+          <dt>Name</dt><dd>{project.name}</dd>
+          <dt>Description</dt><dd>{project.description || "—"}</dd>
+          <dt>Status</dt><dd><Badge kind={project.status === "active" ? "active" : undefined}>{project.status}</Badge></dd>
+          <dt>Created</dt><dd title={new Date(project.createdAt).toLocaleString()}>{fmtDate(project.createdAt)}</dd>
+          <dt>Project ID</dt><dd className="mono small">{project.id}</dd>
+          <dt>Quota</dt><dd>{project.quotaBytes ? fmtBytes(project.quotaBytes) : "Unlimited"}</dd>
+        </dl>
+      </div>
+      <p className="muted small" style={{ marginTop: 10 }}>
+        <b>Current Storage</b> is active bytes on disk now. <b>Uploaded/Downloaded Data</b> are historical bandwidth totals — they never decrease when files are deleted.
+      </p>
+    </>
+  );
+}
+
+function UsageTab({ project, keys }) {
+  const c = project.counters || {};
+  return (
+    <>
+      <div className="grid grid-cards">
+        <Stat label="Current Storage" value={fmtBytes(project.currentStorageBytes)} />
+        <Stat label="File Count" value={project.fileCount} />
+        <Stat label="Uploads" value={c.uploads ?? 0} />
+        <Stat label="Downloads" value={c.downloads ?? 0} />
+        <Stat label="Total Uploaded" value={fmtBytes(c.bytesUp ?? 0)} />
+        <Stat label="Total Downloaded" value={fmtBytes(c.bytesDown ?? 0)} />
+        <Stat label="API Requests" value={c.requests ?? 0} />
+        <Stat label="Errors" value={c.errors ?? 0} />
+      </div>
+
+      <div className="card" style={{ marginTop: 14, padding: 0, overflowX: "auto" }}>
+        <div style={{ padding: "14px 14px 0" }}><h2 style={{ margin: 0 }}>Usage by API key</h2></div>
+        {!keys ? (
+          <p className="muted" style={{ padding: 14 }}>Loading…</p>
+        ) : keys.length === 0 ? (
+          <p className="muted" style={{ padding: 14 }}>No API keys yet.</p>
+        ) : (
+          <table className="table" style={{ marginTop: 8 }}>
+            <thead>
+              <tr><th>Key</th><th>Requests</th><th>Uploads</th><th>Downloads</th><th>Up</th><th>Down</th><th>Errors</th><th>Last used</th></tr>
+            </thead>
+            <tbody>
+              {keys.map((k) => {
+                const kc = k.counters || {};
+                return (
+                  <tr key={k.id}>
+                    <td>{k.name} <Badge kind={k.env === "live" ? "live" : "test"}>{k.env}</Badge></td>
+                    <td className="small">{kc.requests ?? 0}</td>
+                    <td className="small">{kc.uploads ?? 0}</td>
+                    <td className="small">{kc.downloads ?? 0}</td>
+                    <td className="small">{fmtBytes(kc.bytesUp ?? 0)}</td>
+                    <td className="small">{fmtBytes(kc.bytesDown ?? 0)}</td>
+                    <td className="small">{kc.errors ?? 0}</td>
+                    <td className="small muted">{timeAgo(k.lastUsedAt)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
+      <p className="muted small" style={{ marginTop: 10 }}>
+        Dashboard (human) uploads/downloads count toward the project totals but not toward any API key.
       </p>
     </>
   );
