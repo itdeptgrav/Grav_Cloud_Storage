@@ -39,9 +39,9 @@ function phaseText(u) {
   switch (u.phase) {
     case "preparing": return "Preparing…";
     case "verifying": return `Checking the already-uploaded part (chunk ${n}/${u.totalChunks})…`;
-    case "retrying": return `Retrying chunk ${n}${u.attempt > 1 ? ` (attempt ${u.attempt})` : ""}…`;
+    case "retrying": return `Retrying chunk ${n}/${u.totalChunks}${u.reason ? ` — ${u.reason}` : ""} · attempt ${u.attempt}/${u.maxAttempts || "?"}${u.nextRetryInMs ? ` (next try in ${Math.ceil(u.nextRetryInMs / 1000)} s)` : ""}`;
     case "paused": return "Paused";
-    case "interrupted": return "Interrupted — press Resume to continue";
+    case "interrupted": return `Upload paused after ${u.maxAttempts || "several"} failed attempts at chunk ${n}${u.reason ? ` — last error: ${u.reason}` : ""}. Accepted chunks are kept; Retry sends only chunk ${n}.`;
     case "finalizing": return "Verifying checksums & finalizing…";
     default: return "";
   }
@@ -114,13 +114,23 @@ export default function FileManager({ projectId, onChanged }) {
     const row = {
       id, name: f.name, size: f.size, loaded: 0, status: "uploading", phase: "preparing", error: null, speed: 0, avgSpeed: 0, eta: null,
       fingerprint: fingerprintOf(f), chunked: f.size > CHUNK_THRESHOLD, chunkIndex: 0, totalChunks: 0, attempt: 0,
+      stats: null, reason: null, maxAttempts: 0, nextRetryInMs: 0,
     };
     if (reuseId != null) patch(id, row);
     else setUploads((u) => [row, ...u]);
     const samples = [];
     let startLoaded = null; // a resumed upload starts part-way through the file
     let lastUi = 0;
+    let lastStatsUi = 0;
     const callbacks = {
+      // Chunked uploads: committed vs re-sent bytes, current vs effective speed.
+      onStats: (stats) => {
+        const now = performance.now();
+        if (now - lastStatsUi > 250 || stats.committed >= f.size) {
+          lastStatsUi = now;
+          patch(id, { stats });
+        }
+      },
       onProgress: (loaded) => {
         const now = performance.now();
         if (startLoaded == null) startLoaded = loaded;
@@ -140,6 +150,9 @@ export default function FileManager({ projectId, onChanged }) {
         totalChunks: info.totalChunks || x.totalChunks,
         chunkIndex: info.index != null ? info.index : x.chunkIndex,
         attempt: info.attempt || 0,
+        maxAttempts: info.maxAttempts || x.maxAttempts,
+        reason: info.reason !== undefined ? info.reason : x.reason,
+        nextRetryInMs: info.nextRetryInMs || 0,
         ...(phase === "paused" || phase === "interrupted" ? { speed: 0, eta: null } : {}),
       })),
       onDone: (res) => {
@@ -286,16 +299,37 @@ export default function FileManager({ projectId, onChanged }) {
                 {(uploading || needsFile) && (
                   <>
                     <div className="progress ui-prog" style={{ margin: "7px 0 5px" }}><div className="progress-bar" style={{ width: `${pct}%`, opacity: halted || needsFile ? 0.5 : 1 }} /></div>
-                    <div className="between faint tiny" style={{ gap: 8 }}>
-                      <span>{fmtBytes(u.loaded)} / {fmtBytes(u.size)}</span>
-                      {uploading && !halted && u.phase !== "verifying" && u.phase !== "finalizing" && (
-                        <span>
-                          {u.speed ? `${fmtBytes(u.speed)}/s` : "…"}
-                          {u.avgSpeed ? ` · avg ${fmtBytes(u.avgSpeed)}/s` : ""}
-                          {u.eta != null && isFinite(u.eta) ? ` · ~${fmtDuration(u.eta)} left` : ""}
-                        </span>
-                      )}
-                    </div>
+                    {u.chunked && u.stats ? (
+                      <>
+                        <div className="between faint tiny" style={{ gap: 8 }}>
+                          {/* Only bytes the server ACCEPTED count as uploaded. */}
+                          <span>{fmtBytes(u.stats.committed)} / {fmtBytes(u.size)} uploaded</span>
+                          {uploading && !halted && u.phase !== "verifying" && u.phase !== "finalizing" && (
+                            <span>
+                              Current {u.stats.currentBps ? `${fmtBytes(u.stats.currentBps)}/s` : "…"}
+                              {` · Effective ${u.stats.effectiveBps ? `${fmtBytes(u.stats.effectiveBps)}/s` : "…"}`}
+                              {u.stats.etaSec != null && isFinite(u.stats.etaSec) ? ` · ~${fmtDuration(u.stats.etaSec)} left` : ""}
+                            </span>
+                          )}
+                        </div>
+                        {(u.stats.retries > 0 || u.stats.retransmitted > 0) && (
+                          <div className="faint tiny" style={{ marginTop: 2 }}>
+                            Retries {u.stats.retries} · Re-sent {fmtBytes(u.stats.retransmitted)} (not counted as uploaded)
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <div className="between faint tiny" style={{ gap: 8 }}>
+                        <span>{fmtBytes(u.loaded)} / {fmtBytes(u.size)}</span>
+                        {uploading && !halted && u.phase !== "verifying" && u.phase !== "finalizing" && (
+                          <span>
+                            {u.speed ? `${fmtBytes(u.speed)}/s` : "…"}
+                            {u.avgSpeed ? ` · avg ${fmtBytes(u.avgSpeed)}/s` : ""}
+                            {u.eta != null && isFinite(u.eta) ? ` · ~${fmtDuration(u.eta)} left` : ""}
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </>
                 )}
                 {uploading && note && <div className="tiny" style={{ marginTop: 3, color: u.phase === "interrupted" || u.phase === "retrying" ? "var(--warn, var(--down))" : "var(--muted)" }}>{note}</div>}
@@ -306,7 +340,7 @@ export default function FileManager({ projectId, onChanged }) {
                     {needsFile && <Button size="sm" variant="primary" icon="upload" onClick={() => pickResumeFile(u)}>Select file to resume</Button>}
                     {needsFile && <Button size="sm" variant="subtle" icon="trash" onClick={() => discardUpload(u)}>Discard</Button>}
                     {uploading && !halted && u.phase !== "finalizing" && <Button size="sm" variant="subtle" icon="pause" onClick={() => controllers.current.get(u.id)?.pause()}>Pause</Button>}
-                    {uploading && halted && <Button size="sm" variant="primary" icon="play" onClick={() => controllers.current.get(u.id)?.resume()}>Resume</Button>}
+                    {uploading && halted && <Button size="sm" variant="primary" icon="play" onClick={() => controllers.current.get(u.id)?.resume()}>{u.phase === "interrupted" ? "Retry" : "Resume"}</Button>}
                     {uploading && u.phase !== "finalizing" && <Button size="sm" variant="subtle" icon="x" onClick={() => cancelUpload(u)}>Cancel</Button>}
                   </div>
                 )}

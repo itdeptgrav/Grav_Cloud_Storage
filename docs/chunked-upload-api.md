@@ -55,6 +55,18 @@ true full-file SHA-256.
 * `size` (bytes, required) and `filename` (required).
 * `chunkSize` optional — may only be **smaller** than the server's
   `CHUNK_SIZE_BYTES` (default 80 MiB, hard ceiling 90 MiB), minimum 1 MiB.
+  Without it the API plane uses `CHUNK_SIZE_BYTES`; the **dashboard** plane uses
+  `UPLOAD_BROWSER_CHUNK_BYTES` (default 16 MiB). Measured through Cloudflare
+  Tunnel, a mid-transfer drop costs the whole chunk and each request is one more
+  exposure to a drop, so browsers get short requests (~4–7 s each at 2.5–4 MB/s);
+  at 16 MiB the fixed ~0.5 s per-request cost is ~10%.
+
+The session object (begin and status) carries the browser's retry budget:
+`"retryPolicy": { "maxAttempts": 6 }` (`UPLOAD_RETRY_MAX_ATTEMPTS`, 1–20). The
+dashboard retries a failed chunk that many times with exponential backoff and
+jitter (0.5–1 s, 1–2 s, 2–4 s, 4–8 s, 8–16 s; capped at 20 s), asks `status`
+before each resend (a chunk whose response was lost is not sent again), then
+pauses with the reason and a **Retry** button — accepted chunks are always kept.
 
 `201` → session:
 
@@ -86,8 +98,8 @@ but the last is exactly `chunkSize` bytes.
 | `N < nextIndex`, different hash | `409 CHUNK_CONFLICT` | unchanged |
 | `N > nextIndex` | `409 BAD_CHUNK_INDEX`, `details.expected` | unchanged |
 | hash mismatch | `422 CHUNK_CHECKSUM_MISMATCH` | unchanged — retry chunk `N` |
-| wrong length | `400 CHUNK_SIZE_MISMATCH` | unchanged |
-| body stopped arriving (network / abort) | `400 CHUNK_INTERRUPTED` | unchanged |
+| wrong length | `400 CHUNK_SIZE_MISMATCH`, `details.receivedBytes` | unchanged |
+| body stopped arriving (network / proxy / tunnel drop) | `400 CHUNK_INTERRUPTED`, `details.receivedBytes` of `expectedBytes`; logged as `[chunk.append.incomplete]` | unchanged |
 | another attempt at `N` still streaming | `409 CHUNK_IN_PROGRESS` | unchanged — retry shortly |
 | disk below `MIN_FREE_DISK_BYTES` (checked every chunk) | `507 INSUFFICIENT_STORAGE` | unchanged |
 | storage write/sync error | `503 STORAGE_UNAVAILABLE` | unchanged |

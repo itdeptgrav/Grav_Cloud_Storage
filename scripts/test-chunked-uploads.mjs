@@ -328,6 +328,31 @@ function appendInterrupted(pl, id, i, buf, sha, fraction = 0.5) {
   });
 }
 
+// An ORPHANED attempt, as a proxy/tunnel drop leaves it: part of the body sent,
+// connection still open, nothing more arriving. finish() closes it and reports
+// what the server told it (if anything).
+function appendStalled(pl, id, i, buf, sha, fraction = 0.5) {
+  const u = new URL(`${BASE}${pl.base}?op=append&uploadId=${id}&index=${i}`);
+  const headers = { "Content-Type": "application/octet-stream", "x-chunk-sha256": sha, "Content-Length": buf.length };
+  if (pl.auth.key) headers.Authorization = `Bearer ${pl.auth.key}`;
+  if (pl.auth.cookie) Object.assign(headers, { Cookie: pl.auth.cookie, Origin: BASE });
+  const req = http.request({ hostname: u.hostname, port: u.port, path: u.pathname + u.search, method: "POST", headers });
+  const result = new Promise((resolve) => {
+    req.on("error", () => resolve("connection closed without a response"));
+    req.on("response", (res) => {
+      let b = "";
+      res.on("data", (c) => (b += c));
+      res.on("end", () => {
+        let code = "";
+        try { code = JSON.parse(b)?.error?.code || ""; } catch { /* not JSON */ }
+        resolve(`answered ${res.statusCode} ${code}`.trim());
+      });
+    });
+  });
+  req.write(buf.subarray(0, Math.floor(buf.length * fraction)));
+  return { finish: async () => { await sleep(300); req.destroy(); return result; } };
+}
+
 // ───────────────────────── data ─────────────────────────
 function detBuffer(size, seed) {
   const key = crypto.createHash("sha256").update("k" + seed).digest().subarray(0, 16);
@@ -634,6 +659,25 @@ async function suiteCore() {
     const d = expectOk(await complete(api, s.uploadId, { manifestSha256: manifest(await chunkHashesOf(src, MiB)) }), 201);
     assert(d.file.checksumSha256 === SRC_SHA, "sha exact");
     return `interruption: ${how}`;
+  });
+
+  await test("A20 retry while an orphaned attempt is still streaming → takes over (no 409)", async () => {
+    const s = expectOk(await begin(api, { filename: "zombie.bin", size: src.size, chunkSize: MiB }), 201);
+    expectOk(await append(api, s.uploadId, 0, await src.read(0, MiB)));
+    const c1 = await src.read(MiB, 2 * MiB);
+    const zombie = appendStalled(api, s.uploadId, 1, c1, sha256(c1), 0.5); // half sent, connection left open
+    await sleep(800);
+    const st0 = expectOk(await status(api, s.uploadId));
+    assert(st0.inProgress === true && st0.nextIndex === 1, `status while orphaned: inProgress ${st0.inProgress}, next ${st0.nextIndex}`);
+    const t0 = performance.now();
+    const d = expectOk(await append(api, s.uploadId, 1, c1)); // the retry — must NOT be 409
+    const ms = Math.round(performance.now() - t0);
+    assert(d.accepted && !d.alreadyAccepted && d.nextIndex === 2 && d.bytesReceived === 2 * MiB, `retry took over: ${JSON.stringify(d)}`);
+    const old = await zombie.finish();
+    await sendRange(api, s.uploadId, src, MiB, 2, 4);
+    const f = expectOk(await complete(api, s.uploadId, { manifestSha256: manifest(await chunkHashesOf(src, MiB)) }), 201);
+    assert(f.file.checksumSha256 === SRC_SHA && f.file.sizeBytes === src.size, "exact file");
+    return `retry accepted in ${ms} ms while the old attempt was still open (old attempt: ${old}); file exact`;
   });
 
   await test("A20 retry after storage failure (temp read-only → 503, then OK)", async () => {
