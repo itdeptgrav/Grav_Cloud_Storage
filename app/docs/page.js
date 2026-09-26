@@ -228,12 +228,13 @@ await storage.files.download(file.fileId, "./out.pdf"); // streams to disk`}</Co
           <tr><td>No <code>Authorization</code> header</td><td className="mono">MISSING_API_KEY</td><td>401</td></tr>
           <tr><td>Unknown / malformed key</td><td className="mono">INVALID_API_KEY</td><td>401</td></tr>
           <tr><td>Key was revoked</td><td className="mono">API_KEY_REVOKED</td><td>401</td></tr>
-          <tr><td>Project archived/disabled</td><td className="mono">PROJECT_DISABLED</td><td>403</td></tr>
+          <tr><td>Project archived/disabled, or its permanent deletion has started</td><td className="mono">PROJECT_DISABLED</td><td>403</td></tr>
           <tr><td>Key lacks the required scope</td><td className="mono">INSUFFICIENT_SCOPE</td><td>403</td></tr>
           <tr><td>Too many requests</td><td className="mono">RATE_LIMIT_EXCEEDED</td><td>429</td></tr>
         </tbody>
       </table>
       <p className="muted small" style={{ marginTop: 10 }}>Verify a key quickly with <code>GET /api/v1/keyinfo</code> (requires <code>files:read</code>).</p>
+      <p className="muted small">Once a project is <b>permanently deleted</b> (dashboard → Settings → Danger zone) its keys are gone: they return <code>INVALID_API_KEY</code>, and its file IDs resolve nowhere (<code>FILE_NOT_FOUND</code> with any other project&apos;s key).</p>
     </div>
   ),
 
@@ -354,6 +355,7 @@ await storage.files.download(file.fileId, "./out.pdf"); // streams to disk`}</Co
             ["FILE_NOT_FOUND", 404, "No such file in this project"],
             ["NOT_FOUND", 404, "No such resource"],
             ["CONFLICT", 409, "State conflict (e.g. delete a non-revoked key)"],
+            ["PROJECT_DELETING", 409, "The project is being permanently deleted; the upload/trash was refused"],
             ["FILE_TOO_LARGE", 413, "Exceeds max upload size"],
             ["INVALID_RANGE", 416, "Unsatisfiable Range header"],
             ["RATE_LIMIT_EXCEEDED", 429, "Too many requests"],

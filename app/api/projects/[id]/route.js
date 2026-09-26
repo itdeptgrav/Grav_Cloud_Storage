@@ -1,7 +1,10 @@
 // /api/projects/:id
 //   GET    → one project (owner or super-admin only; else 404)
 //   PATCH  → rename / edit description / change status (active|disabled|archived)
-//   DELETE → archive (soft) — no hard delete in Phase 1
+//   DELETE → archive (soft). PERMANENT deletion is its own endpoint:
+//            /api/projects/:id/permanent (see lib/services/projectDeletion.js).
+// A project whose permanent deletion has started ("deleting") can still be read
+// (the Settings page shows it and offers a retry) but not changed.
 import { ok, fail } from "@/lib/http";
 import { requireUser } from "@/lib/auth/guards";
 import { getProjectForUser, updateProject, setProjectStatus } from "@/lib/services/projectService";
@@ -32,6 +35,7 @@ export async function PATCH(request, { params }) {
   if (csrf) return csrf;
   const { user, project, error } = await load(request, params);
   if (error) return error;
+  if (project.status === "deleting") return fail("PROJECT_DELETING", "This project is being permanently deleted.");
 
   let body = {};
   try {
@@ -76,6 +80,7 @@ export async function DELETE(request, { params }) {
   if (csrf) return csrf;
   const { project, error } = await load(request, params);
   if (error) return error;
+  if (project.status === "deleting") return fail("PROJECT_DELETING", "This project is being permanently deleted.");
   await setProjectStatus(project, "archived");
   return ok({ project: project.toNode() });
 }

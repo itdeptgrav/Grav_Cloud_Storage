@@ -67,6 +67,6 @@ export const DELETE = withLog("delete", async (request, { params }) => {
   setLogCtx(request, { fileId });
   const file = await loadActiveFile(project, fileId);
   if (!file) return fail("FILE_NOT_FOUND", "File not found.");
-  await trashFile(project, file);
+  if (!(await trashFile(project, file))) return fail("PROJECT_DELETING", "The project for this API key is being deleted.");
   return ok({ fileId: file.fileId, status: "trashed", trashedAt: file.trashedAt });
 });

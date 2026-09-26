@@ -200,7 +200,7 @@ export function Badge({ children, kind, dot }) {
   return <span className={`badge ${kind ? `badge-${kind}` : ""}`}>{dot && <span className="dot" />}{children}</span>;
 }
 export function StatusBadge({ status }) {
-  const map = { active: "active", disabled: "warn", archived: "neutral", revoked: "revoked", trashed: "neutral" };
+  const map = { active: "active", disabled: "warn", archived: "neutral", revoked: "revoked", trashed: "neutral", deleting: "danger" };
   return <Badge kind={map[status] || "neutral"} dot={status === "active"}>{status}</Badge>;
 }
 

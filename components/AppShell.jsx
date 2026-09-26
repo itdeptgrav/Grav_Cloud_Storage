@@ -23,6 +23,12 @@ export default function AppShell({ user, children }) {
   useEffect(() => {
     api.get("/api/projects").then((d) => setProjects(d.projects || [])).catch(() => {});
   }, []);
+  // A permanently deleted project leaves the sidebar immediately (no reload).
+  useEffect(() => {
+    const onRemoved = (e) => setProjects((list) => list.filter((p) => p.id !== e.detail?.id));
+    window.addEventListener("gs:project-removed", onRemoved);
+    return () => window.removeEventListener("gs:project-removed", onRemoved);
+  }, []);
   useEffect(() => { setOpen(false); }, [pathname]);
 
   async function logout() {

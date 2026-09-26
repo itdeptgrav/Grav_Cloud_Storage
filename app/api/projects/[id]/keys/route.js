@@ -33,6 +33,7 @@ export async function POST(request, { params }) {
   if (csrf) return csrf;
   const { user, project, error } = await loadProject(request, params);
   if (error) return error;
+  if (project.status === "deleting") return fail("PROJECT_DELETING", "This project is being permanently deleted.");
 
   let body = {};
   try {

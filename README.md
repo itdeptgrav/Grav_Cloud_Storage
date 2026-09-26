@@ -124,6 +124,15 @@ scripts/                 check-mongo, storage-maintenance (integrity/reconcile/c
   are enforced atomically (concurrent uploads can't race past a quota).
 - **Integrity** — SHA-256 computed during every upload and returned; the admin
   integrity checker is report-only and never deletes or repairs automatically.
+- **Project deletion** — Disable / Archive are reversible (the project's keys are
+  refused). *Settings → Danger zone → Delete project permanently* (owner or
+  super-admin; the exact project name + an acknowledgement, both re-checked
+  server-side at `DELETE /api/projects/:id/permanent`) removes every active and
+  trashed file, unfinished uploads and their temp chunks, API keys, usage rollups
+  and request logs, then the project. Audit history is kept, ending with a
+  `project.permanently_deleted` entry. A deletion that fails part-way leaves the
+  project `deleting` — locked, nothing new accepted — and can be retried.
+  Tests: `node --import ./scripts/alias-register.mjs scripts/test-project-delete.mjs [--prod]`.
 
 ## Scripts
 

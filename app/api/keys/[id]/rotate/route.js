@@ -18,11 +18,18 @@ export async function POST(request, { params }) {
   const { user, error } = await requireUser();
   if (error) return error;
   const { id } = await params;
-  const { key, notFound } = await loadKeyForUser(user, id);
+  const { key, project, notFound } = await loadKeyForUser(user, id);
   if (notFound) return fail("NOT_FOUND", "API key not found.");
+  if (project.status === "deleting") return fail("PROJECT_DELETING", "This project is being permanently deleted.");
   if (key.status === "revoked") return fail("CONFLICT", "Cannot rotate a revoked key.");
 
-  const { record, rawKey, oldKeyId } = await rotateKey(key, { createdByUserId: user._id });
+  let rotated;
+  try {
+    rotated = await rotateKey(key, { createdByUserId: user._id });
+  } catch (e) {
+    return fail(e.code || "INTERNAL", e.code ? e.message : "Could not rotate the key.");
+  }
+  const { record, rawKey, oldKeyId } = rotated;
   recordAudit({ user, action: "key.rotate", targetType: "apiKey", targetId: oldKeyId, projectId: key.projectId, details: { newKeyId: String(record._id) }, ip: ipOf(request) });
   return ok(
     {

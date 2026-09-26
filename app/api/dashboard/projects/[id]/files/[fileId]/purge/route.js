@@ -20,7 +20,8 @@ export const DELETE = withLog("purge", async (request, { params }) => {
   setLogCtx(request, { fileId });
   const file = await loadTrashedFile(project, fileId);
   if (!file) return fail("FILE_NOT_FOUND", "Trashed file not found.");
-  await purgeFile(file);
+  const r = await purgeFile(file);
+  if (!r.ok) return fail(r.code, r.message);
   recordAudit({ user, action: "file.purge", targetType: "file", targetId: file.fileId, projectId: project._id, ip: ipOf(request) });
   return ok({ fileId: file.fileId, status: "purged" });
 });

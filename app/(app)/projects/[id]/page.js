@@ -1,12 +1,13 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { api } from "@/lib/clientApi";
 import { fmtBytes, timeAgo, fmtDate } from "@/lib/format";
 import { Button, IconButton, Field, Input, Textarea, Modal, ErrorNote, Callout, Badge, StatusBadge, StatCard, EmptyState, PageHeader, SectionHeader, Tabs, Dropdown, MenuItem, CopyButton, confirmAction, toast, Loading, Skeleton } from "@/components/ui";
 import Icon from "@/components/icons";
 import CodeBlock from "@/components/CodeBlock";
 import FileManager from "@/components/files/FileManager";
+import DeleteProjectModal from "@/components/DeleteProjectModal";
 
 const ALL_SCOPES = [
   ["files:read", "Read files", "Download, stream and read file metadata"],
@@ -15,6 +16,17 @@ const ALL_SCOPES = [
   ["files:delete", "Delete files", "Move files to trash"],
 ];
 const TABS = [["overview", "Overview"], ["files", "Files"], ["keys", "API Keys"], ["usage", "Usage"], ["requests", "Requests"], ["docs", "Documentation"], ["settings", "Settings"]];
+
+// After a permanent deletion: drop the project from the sidebar at once, say so,
+// and leave its (now dead) route.
+function useProjectDeleted() {
+  const router = useRouter();
+  return useCallback((res, project) => {
+    window.dispatchEvent(new CustomEvent("gs:project-removed", { detail: { id: project.id } }));
+    toast.success(`Project "${project.name}" permanently deleted.`, 5000);
+    router.replace("/dashboard");
+  }, [router]);
+}
 
 export default function ProjectPage() {
   const { id } = useParams();
@@ -38,6 +50,7 @@ export default function ProjectPage() {
   if (!project) return (
     <><Skeleton w="40%" h={22} /><Skeleton w="24%" h={13} style={{ marginTop: 10 }} /><div style={{ marginTop: 24 }}><Loading /></div></>
   );
+  if (project.status === "deleting") return <DeletingProject project={project} />;
 
   return (
     <>
@@ -64,6 +77,37 @@ export default function ProjectPage() {
       {tab === "requests" && <RequestsTab project={project} keys={keys} />}
       {tab === "docs" && <DocsTab project={project} keys={keys} onKeys={() => setTab("keys")} />}
       {tab === "settings" && <SettingsTab project={project} me={me} onChange={loadProject} />}
+    </>
+  );
+}
+
+/* ── A permanent deletion that started and did not finish ── */
+function DeletingProject({ project }) {
+  const [open, setOpen] = useState(false);
+  const onDeleted = useProjectDeleted();
+  const d = project.deletion || {};
+  return (
+    <>
+      <div className="page-head">
+        <div style={{ minWidth: 0 }}>
+          <a href="/dashboard" className="row small muted" style={{ gap: 5, marginBottom: 8, width: "fit-content" }}><Icon name="arrowLeft" size={13} />Projects</a>
+          <div className="row" style={{ gap: 10 }}>
+            <h1 className="ph-title truncate">{project.name}</h1>
+            <StatusBadge status={project.status} />
+          </div>
+          <div className="row" style={{ gap: 6, marginTop: 6 }}><span className="mono-id">{project.id}</span></div>
+        </div>
+      </div>
+      <div className="card card-danger" style={{ maxWidth: 560 }}>
+        <h2>Deletion not finished</h2>
+        <p className="muted small mt-0">
+          A permanent deletion of this project started{d.startedAt ? ` ${timeAgo(d.startedAt)}` : ""} and did not complete
+          {d.stage ? <> — it stopped at the <b>{d.stage}</b> stage{d.lastErrorCode ? <> ({d.lastErrorCode})</> : null}</> : null}.
+          The project and its API keys accept nothing new. Retry to finish deleting it.
+        </p>
+        <Button variant="danger-solid" icon="trash" onClick={() => setOpen(true)}>Retry permanent deletion</Button>
+      </div>
+      {open && <DeleteProjectModal project={project} retry onClose={() => setOpen(false)} onDeleted={(res) => onDeleted(res, project)} />}
     </>
   );
 }
@@ -427,6 +471,8 @@ function DocsTab({ project, keys, onKeys }) {
 /* ── Settings ── */
 function SettingsTab({ project, me, onChange }) {
   const isAdmin = me?.role === "superadmin";
+  const [deleting, setDeleting] = useState(false);
+  const onDeleted = useProjectDeleted();
   const [name, setName] = useState(project.name);
   const [desc, setDesc] = useState(project.description || "");
   const [err, setErr] = useState(null);
@@ -467,7 +513,17 @@ function SettingsTab({ project, me, onChange }) {
             {project.status !== "archived" && <Button size="sm" variant="danger" onClick={() => setStatus("archived")}>Archive</Button>}
           </div>
         </div>
+
+        <div className="danger-section between">
+          <div>
+            <div className="ds-title">Delete project permanently</div>
+            <div className="faint small">Permanently delete this project and all of its storage. This cannot be undone.</div>
+          </div>
+          <Button size="sm" variant="danger-solid" icon="trash" onClick={() => setDeleting(true)}>Delete project</Button>
+        </div>
       </div>
+      {/* Reload on close: a deletion that stopped part-way turns this page into the "deleting" view. */}
+      {deleting && <DeleteProjectModal project={project} onClose={() => { setDeleting(false); onChange(); }} onDeleted={(res) => onDeleted(res, project)} />}
     </div>
   );
 }

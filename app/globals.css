@@ -542,6 +542,20 @@ kbd { background: var(--panel-2); border: 1px solid var(--border-2); border-bott
 .w-full { width: 100%; }
 .right { text-align: right; }
 
+/* ── Permanent project deletion (Settings → Danger zone) ── */
+.danger-section { margin-top: 16px; padding-top: 16px; border-top: 1px solid rgba(248,113,113,.22); }
+.danger-section .ds-title { color: #f6b0b0; font-weight: 600; font-size: 13px; margin-bottom: 2px; }
+.card-danger { border-color: rgba(248,113,113,.35); }
+.del-counts { display: grid; grid-template-columns: 1fr auto; gap: 7px 16px; margin: 0; padding: 12px 14px; border: 1px solid rgba(248,113,113,.28);
+  border-radius: var(--r-sm); background: rgba(248,113,113,.06); font-size: 12.5px; }
+.del-counts dt { color: var(--text); }
+.del-counts dd { margin: 0; text-align: right; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.del-list { margin: 0 0 12px; padding-left: 18px; color: var(--text-2); font-size: 12.5px; line-height: 1.75; }
+.del-name { color: #f6b0b0; user-select: all; }
+.check.check-danger.on { border-color: rgba(248,113,113,.45); background: rgba(248,113,113,.08); }
+.check.check-danger input { accent-color: #e5484d; }
+.btn-danger-solid:disabled { background: #5a2427; border-color: #5a2427; color: #c9a3a5; }
+
 /* ── Responsive ── */
 @media (max-width: 900px) {
   .shell { grid-template-columns: 1fr; }
@@ -567,4 +581,5 @@ kbd { background: var(--panel-2); border: 1px solid var(--border-2); border-bott
   .stat-row > .stat:last-child { border-bottom: 0; }
   .page-head { flex-direction: column; align-items: stretch; }
   .modal { max-width: 100%; }
+  .danger-section.between { flex-direction: column; align-items: flex-start; }
 }
