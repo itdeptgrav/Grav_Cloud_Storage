@@ -18,6 +18,9 @@ npm-debug.log*
 # OS / editor
 .DS_Store
 Thumbs.db
+# Editor local-history snapshots (e.g. VS Code "Local History") copy every saved
+# file — .env included. Never commit them.
+.history/
 
 # NOTE: uploaded file bytes are stored OUTSIDE this repo (STORAGE_ROOT,
 # e.g. D:\GravStorage\data) and must never live in the source tree.
