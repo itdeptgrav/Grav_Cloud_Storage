@@ -47,6 +47,7 @@ const P = {
   refresh: "M3 12a9 9 0 0 1 15-6.7L21 8M21 3v5h-5M21 12a9 9 0 0 1-15 6.7L3 16M3 21v-5h5",
   clock: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18ZM12 7v5l3 2",
   play: "M6 4l14 8-14 8z",
+  pause: "M8 5v14M16 5v14",
   code: "M8 8l-4 4 4 4M16 8l4 4-4 4M13 4l-2 16",
   layers: "M12 3l9 5-9 5-9-5zM3 13l9 5 9-5M3 18l9 5 9-5",
   filter: "M3 5h18l-7 8v5l-4 2v-7z",

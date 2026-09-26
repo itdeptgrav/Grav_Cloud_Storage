@@ -12,7 +12,8 @@
     "storage:reconcile": "node --import ./scripts/alias-register.mjs scripts/storage-maintenance.mjs reconcile",
     "storage:cleanup": "node --import ./scripts/alias-register.mjs scripts/storage-maintenance.mjs cleanup",
     "storage:purge-trash": "node --import ./scripts/alias-register.mjs scripts/storage-maintenance.mjs purge-trash",
-    "maintenance": "node --import ./scripts/alias-register.mjs scripts/storage-maintenance.mjs all"
+    "maintenance": "node --import ./scripts/alias-register.mjs scripts/storage-maintenance.mjs all",
+    "storage:chunks": "node --import ./scripts/alias-register.mjs scripts/storage-maintenance.mjs chunks"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

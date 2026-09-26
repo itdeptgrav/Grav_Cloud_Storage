@@ -136,6 +136,7 @@ scripts/                 check-mongo, storage-maintenance (integrity/reconcile/c
 | `npm run storage:reconcile` | Report per-project counter drift |
 | `npm run storage:cleanup` | Remove stale `*.part` temp files |
 | `npm run storage:purge-trash` | Purge trashed files past retention |
+| `npm run storage:chunks` | Expire idle chunked uploads, reap orphan chunk temp files |
 | `npm run maintenance` | Run all maintenance tasks |
 
 ## Health
@@ -144,6 +145,11 @@ scripts/                 check-mongo, storage-maintenance (integrity/reconcile/c
 minimal (no paths, versions or disk figures). 200 healthy, 503 degraded.
 
 ## Deployment
+
+Production always runs the built app: `npm ci`, `npm run build`, `npm start`.
+Never serve users from `npm run dev` — the dev server compiles routes on demand
+and has been seen to start without a route (e.g. the chunked-upload endpoint)
+until restarted.
 
 Production deployment (Windows host, Cloudflare Tunnel, MongoDB, `D:\GravStorage`),
 plus backup/restore and maintenance, is documented in the app at

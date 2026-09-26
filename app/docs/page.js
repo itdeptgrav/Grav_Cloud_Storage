@@ -9,7 +9,7 @@ import Icon from "@/components/icons";
 const NAV = [
   ["Getting Started", [["intro", "Introduction"], ["quickstart", "Quick Start"], ["security", "Security"], ["auth", "Authentication"], ["keys", "API Keys"]]],
   ["Concepts", [["files-model", "The File Model"], ["folders", "Folders & Metadata"], ["usage", "Usage & Quotas"], ["limits", "Rate Limits"], ["errors", "Errors"]]],
-  ["Files API", [["api-auth", "Base URL & Auth"], ["api-upload", "Upload"], ["api-get", "Retrieve & Download"], ["api-range", "Range Requests"], ["api-meta", "Metadata"], ["api-list", "List"], ["api-delete", "Delete"], ["api-usage", "Usage & Key Info"]]],
+  ["Files API", [["api-auth", "Base URL & Auth"], ["api-upload", "Upload"], ["api-chunked", "Chunked Upload"], ["api-get", "Retrieve & Download"], ["api-range", "Range Requests"], ["api-meta", "Metadata"], ["api-list", "List"], ["api-delete", "Delete"], ["api-usage", "Usage & Key Info"]]],
   ["SDK", [["sdk-install", "Installation"], ["sdk-ref", "SDK Reference"]]],
   ["Examples", [["ex-node", "Node.js"], ["ex-curl", "cURL"], ["ex-ps", "PowerShell"], ["ex-cms", "GRAV CMS Pattern"]]],
   ["Operations", [["deploy", "Deployment"], ["backup", "Backup & Restore"], ["maintenance", "Maintenance"]]],
@@ -459,6 +459,22 @@ const storage = new GravStorage({
     </div>
   ),
 
+  "api-chunked": () => (
+    <div>
+      <h1>Chunked upload (large files)</h1>
+      <p className="docs-lede">A proxy in front of Grav Storage may cap a single request body (Cloudflare Free/Pro: ~100 MB). Large files are therefore sent as a sequence of <b>chunks</b>, each its own request, with progress persisted on the server — a failed or interrupted chunk is retried on its own instead of restarting the whole file.</p>
+      <p>Endpoint: <code>POST /api/v1/files/chunk?op=begin | append | complete | abort</code> and <code>GET …?op=status | list</code> (scope <code>files:write</code>). The dashboard uses the same engine on its session plane. A session is bound to the API key that began it.</p>
+      <h3>Flow</h3>
+      <ol>
+        <li><code>begin</code> with <code>{"{ filename, size, mimeType, sha256? }"}</code> → <code>{"{ uploadId, chunkSize, totalChunks, nextIndex }"}</code>.</li>
+        <li>For each chunk <code>N</code> (bytes <code>N·chunkSize …</code>): <code>append&amp;uploadId=…&amp;index=N</code> with the raw bytes and header <code>x-chunk-sha256</code> (SHA-256 of the chunk). Resending an already-accepted chunk is harmless (<code>alreadyAccepted: true</code>).</li>
+        <li><code>complete</code> with <code>{"{ manifestSha256 }"}</code> — SHA-256 of the concatenated hex chunk hashes — and ideally the full-file <code>sha256</code>. The server re-verifies every byte from disk before the file becomes visible.</li>
+      </ol>
+      <p>After any interruption, <code>GET ?op=status</code> returns <code>nextIndex</code>: continue from there. Chunk size defaults to 80 MiB (you may request smaller, never larger).</p>
+      <div className="callout info">Full contract, every status code and the cleanup rules: <code>docs/chunked-upload-api.md</code> in the Grav Storage repo.</div>
+    </div>
+  ),
+
   "api-get": () => (
     <div>
       <h1>Retrieve &amp; download</h1>
@@ -692,12 +708,13 @@ export async function viewHandler(req, res) {
         <li>A data directory <b>outside the repo</b>, e.g. <code>D:\GravStorage\data</code> (plus its sibling <code>tmp</code>).</li>
       </ul>
       <h3>2. Environment</h3>
-      <p>Create <code>.env</code> (never committed). See <a onClick={() => location.hash = "quickstart"}>Quick start</a> and the repo's <code>.env.example</code> for the full grouped list. At minimum set <code>MONGODB_URI</code>, <code>STORAGE_ROOT</code>, <code>SESSION_SECRET</code>, <code>KEY_HASH_PEPPER</code>, and the bootstrap admin.</p>
+      <p>Create <code>.env</code> (never committed). See <a onClick={() => location.hash = "quickstart"}>Quick start</a> and the repo's <code>.env.example</code> for the full grouped list. At minimum set <code>MONGODB_URI</code>, <code>STORAGE_ROOT</code>, <code>JWT_SECRET</code>, <code>KEY_HASH_PEPPER</code>, and the bootstrap admin.</p>
       <h3>3. Build &amp; run</h3>
       <CodeBlock lang="bash">{`npm ci
 npm run build
 npm start           # serves on :4000 (next start -p 4000)`}</CodeBlock>
       <p>Run it under a process manager that restarts on boot/crash (Windows Service via NSSM, or pm2).</p>
+      <div className="callout warn">Production is always the built app — <code>npm run build</code> then <code>npm start</code>. Never serve users from <code>npm run dev</code>: the dev server compiles routes on demand and has been seen to start without a route (for example the chunked-upload endpoint) until it is restarted. Production logs are path-free: absolute filesystem paths are redacted from every console line.</div>
       <h3>4. Cloudflare Tunnel</h3>
       <p>Expose <code>localhost:4000</code> as a public hostname (e.g. <code>storage.grav.in</code>) with a Cloudflare Tunnel — no inbound ports opened on the host.</p>
       <CodeBlock lang="yaml">{`# ~/.cloudflared/config.yml
@@ -748,6 +765,7 @@ robocopy "D:\\Backups\\gs-<date>\\data" "D:\\GravStorage\\data" /MIR /R:2 /W:2`}
         <li><b>Reconcile</b> — recomputes a project's reconstructable counters (storage bytes, file count) from the objects. Reports drift; you apply per project explicitly.</li>
         <li><b>Temp cleanup</b> — removes stale <code>*.part</code> files from interrupted uploads (older than the temp max-age, default 24 h).</li>
         <li><b>Purge trash</b> — permanently removes trashed files past the retention window (default 30 days). Restores are possible until then.</li>
+        <li><b>Chunked uploads</b> — expires idle resumable uploads (default 6 h after their last chunk), recovers interrupted finalizes, and removes chunk temp files no session references (older than 60 min). Never touches a live upload. Also runs as <code>npm run storage:chunks</code> — schedule it (e.g. hourly with Task Scheduler) so abandoned uploads release their disk space.</li>
         <li><b>Disk protection</b> — if a free-space floor is configured, uploads that would cross it are refused with <code>INSUFFICIENT_STORAGE</code>. User files are never auto-deleted to make room.</li>
       </ul>
       <div className="callout info">All admin actions are recorded in the audit log with the actor, action and a redacted detail payload (never secrets).</div>

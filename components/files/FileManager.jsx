@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/clientApi";
-import { uploadFileXHR } from "@/lib/uploadClient";
+import { uploadFileXHR, resumeChunkedUpload, listPendingUploads, pendingUploadStatus, discardPendingUpload, forgetPendingUpload, fingerprintOf, CHUNK_THRESHOLD } from "@/lib/uploadClient";
 import { fmtBytes, timeAgo, fmtDate } from "@/lib/format";
 import { Button, IconButton, SearchInput, Select, Dropdown, MenuItem, EmptyState, TableSkeleton, confirmAction, toast, copyText } from "@/components/ui";
 import Icon from "@/components/icons";
@@ -26,6 +26,26 @@ function fileIcon(m = "") {
   return "file";
 }
 const isImage = (m) => m && m.startsWith("image/") && m !== "image/svg+xml";
+function fmtDuration(sec) {
+  if (!isFinite(sec) || sec < 0) return "—";
+  sec = Math.round(sec);
+  if (sec < 60) return `${sec} sec`;
+  if (sec < 3600) return `${Math.floor(sec / 60)} min ${sec % 60} sec`;
+  return `${Math.floor(sec / 3600)} hr ${Math.floor((sec % 3600) / 60)} min`;
+}
+// Human text for a chunked upload's phase (from the client's onState).
+function phaseText(u) {
+  const n = u.totalChunks ? `${Math.min((u.chunkIndex ?? 0) + 1, u.totalChunks)}` : "";
+  switch (u.phase) {
+    case "preparing": return "Preparing…";
+    case "verifying": return `Checking the already-uploaded part (chunk ${n}/${u.totalChunks})…`;
+    case "retrying": return `Retrying chunk ${n}${u.attempt > 1 ? ` (attempt ${u.attempt})` : ""}…`;
+    case "paused": return "Paused";
+    case "interrupted": return "Interrupted — press Resume to continue";
+    case "finalizing": return "Verifying checksums & finalizing…";
+    default: return "";
+  }
+}
 
 export default function FileManager({ projectId, onChanged }) {
   const [files, setFiles] = useState(null);
@@ -62,23 +82,116 @@ export default function FileManager({ projectId, onChanged }) {
   useEffect(() => { load(); }, [load]);
   useEffect(() => { setPage(1); }, [dq, type, sort, trash]);
 
+  const controllers = useRef(new Map()); // upload item id -> { pause, resume, cancel }
+  const uploadsRef = useRef([]);
+  useEffect(() => { uploadsRef.current = uploads; }, [uploads]);
+  const resumeInputRef = useRef(null);
+  const resumeTarget = useRef(null); // the "needs-file" item waiting for its file
+  const patch = (id, p) => setUploads((u) => u.map((x) => (x.id === id ? { ...x, ...(typeof p === "function" ? p(x) : p) } : x)));
+
+  // After a page reload: offer to resume chunked uploads this browser started.
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      for (const entry of listPendingUploads(projectId)) {
+        const s = await pendingUploadStatus(projectId, entry);
+        if (!alive) return;
+        if (!s || s.status !== "active") { forgetPendingUpload(projectId, entry.fingerprint); continue; }
+        setUploads((u) => (u.some((x) => x.fingerprint === entry.fingerprint) ? u : [{
+          id: ++uid, name: entry.name, size: entry.size, loaded: s.bytesReceived, status: "needs-file", phase: "paused",
+          chunked: true, fingerprint: entry.fingerprint, entry, chunkIndex: s.nextIndex, totalChunks: s.totalChunks,
+          speed: 0, avgSpeed: 0, eta: null, error: null,
+        }, ...u]));
+      }
+    })();
+    return () => { alive = false; };
+  }, [projectId]);
+
+  // Start (or resume) one upload and wire its progress/state into the tray.
+  const launch = useCallback((f, { resume = false, reuseId = null } = {}) => {
+    const id = reuseId ?? ++uid;
+    const startedAt = performance.now();
+    const row = {
+      id, name: f.name, size: f.size, loaded: 0, status: "uploading", phase: "preparing", error: null, speed: 0, avgSpeed: 0, eta: null,
+      fingerprint: fingerprintOf(f), chunked: f.size > CHUNK_THRESHOLD, chunkIndex: 0, totalChunks: 0, attempt: 0,
+    };
+    if (reuseId != null) patch(id, row);
+    else setUploads((u) => [row, ...u]);
+    const samples = [];
+    let startLoaded = null; // a resumed upload starts part-way through the file
+    let lastUi = 0;
+    const callbacks = {
+      onProgress: (loaded) => {
+        const now = performance.now();
+        if (startLoaded == null) startLoaded = loaded;
+        samples.push({ t: now, loaded });
+        while (samples.length > 2 && samples[0].t < now - 3000) samples.shift(); // 3s moving window
+        const win = samples[0];
+        const speed = now > win.t ? Math.max(0, ((loaded - win.loaded) / (now - win.t)) * 1000) : 0; // bytes/s
+        const avgSpeed = now > startedAt ? Math.max(0, ((loaded - startLoaded) / (now - startedAt)) * 1000) : 0;
+        const eta = speed > 0 ? (f.size - loaded) / speed : null; // seconds
+        if (now - lastUi > 200 || loaded >= f.size) { // throttle re-renders → the page stays smooth
+          lastUi = now;
+          patch(id, { loaded, speed, avgSpeed, eta });
+        }
+      },
+      onState: (phase, info = {}) => patch(id, (x) => ({
+        phase,
+        totalChunks: info.totalChunks || x.totalChunks,
+        chunkIndex: info.index != null ? info.index : x.chunkIndex,
+        attempt: info.attempt || 0,
+        ...(phase === "paused" || phase === "interrupted" ? { speed: 0, eta: null } : {}),
+      })),
+      onDone: (res) => {
+        controllers.current.delete(id);
+        const status = res.ok ? "done" : res.cancelled ? "cancelled" : res.interrupted ? "interrupted" : "error";
+        const hint = !res.ok && res.resumable && res.code !== "FILE_MISMATCH" ? " — add the same file again to resume" : "";
+        patch(id, { status, phase: status, error: res.ok ? null : `${res.error || "Failed"}${hint}`, speed: 0, eta: null, ...(res.ok ? { loaded: f.size } : {}) });
+        if (res.ok) { toast.success(`Uploaded ${f.name}`); load(); onChanged && onChanged(); }
+        else if (res.cancelled) toast.info(`Cancelled ${f.name}`);
+        else if (status === "interrupted") toast.error(`Upload interrupted: ${f.name}`);
+        else toast.error(`Upload failed: ${res.error || f.name}`);
+      },
+    };
+    controllers.current.set(id, resume ? resumeChunkedUpload(projectId, f, callbacks) : uploadFileXHR(projectId, f, callbacks));
+  }, [projectId, load, onChanged]);
+
   const startUploads = useCallback((fileList) => {
     const arr = Array.from(fileList || []);
     if (!arr.length) return;
     if (trash) setTrash(false);
+    const seen = new Set();
     for (const f of arr) {
-      const item = { id: ++uid, name: f.name, size: f.size, loaded: 0, status: "uploading", error: null };
-      setUploads((u) => [item, ...u]);
-      uploadFileXHR(projectId, f, {
-        onProgress: (loaded) => setUploads((u) => u.map((x) => (x.id === item.id ? { ...x, loaded } : x))),
-        onDone: (res) => {
-          setUploads((u) => u.map((x) => (x.id === item.id ? { ...x, status: res.ok ? "done" : "error", error: res.error, loaded: res.ok ? f.size : x.loaded } : x)));
-          if (res.ok) { toast.success(`Uploaded ${f.name}`); load(); onChanged && onChanged(); }
-          else toast.error(`Upload failed: ${res.error || f.name}`);
-        },
-      });
+      const fp = fingerprintOf(f);
+      if (seen.has(fp)) continue; // the same file twice in one drop
+      seen.add(fp);
+      const existing = uploadsRef.current.find((x) => x.fingerprint === fp && (x.status === "uploading" || x.status === "needs-file"));
+      if (existing?.status === "uploading") { toast.info(`${f.name} is already uploading`); continue; }
+      if (existing?.status === "needs-file") { launch(f, { resume: true, reuseId: existing.id }); continue; } // dropping it again resumes
+      launch(f);
     }
-  }, [projectId, trash, load, onChanged]);
+  }, [trash, launch]);
+
+  function pickResumeFile(item) { resumeTarget.current = item; resumeInputRef.current?.click(); }
+  function onResumeFile(e) {
+    const f = e.target.files?.[0];
+    e.target.value = "";
+    const item = resumeTarget.current;
+    resumeTarget.current = null;
+    if (!f || !item) return;
+    if (fingerprintOf(f) !== item.fingerprint) { toast.error(`That isn't ${item.name}. Pick the same file to resume.`); return; }
+    launch(f, { resume: true, reuseId: item.id });
+  }
+  async function discardUpload(item) {
+    const ok = await confirmAction({ title: "Discard this upload?", danger: true, body: `The ${fmtBytes(item.loaded)} already uploaded for “${item.name}” will be deleted.`, confirmLabel: "Discard" });
+    if (!ok) return;
+    await discardPendingUpload(projectId, item.entry || { fingerprint: item.fingerprint });
+    setUploads((u) => u.filter((x) => x.id !== item.id));
+  }
+  async function cancelUpload(item) {
+    const ok = await confirmAction({ title: "Cancel this upload?", danger: true, body: `Uploading “${item.name}” stops and the part already sent is deleted.`, confirmLabel: "Cancel upload" });
+    if (ok) controllers.current.get(item.id)?.cancel();
+  }
 
   // full-page drag overlay
   function onDragEnter(e) { e.preventDefault(); if (trash) return; dragDepth.current++; setDragging(true); }
@@ -143,23 +256,60 @@ export default function FileManager({ projectId, onChanged }) {
       </div>
 
       {/* upload tray */}
+      <input ref={resumeInputRef} type="file" hidden onChange={onResumeFile} />
       {uploads.length > 0 && (
         <div className="upload-tray">
           <div className="between" style={{ marginBottom: 6 }}>
             <span className="small strong">{activeUploads ? `Uploading ${activeUploads} file${activeUploads > 1 ? "s" : ""}…` : "Uploads"}</span>
-            <button className="btn btn-ghost btn-sm" onClick={() => setUploads((u) => u.filter((x) => x.status === "uploading"))}>Clear finished</button>
+            <button className="btn btn-ghost btn-sm" onClick={() => setUploads((u) => u.filter((x) => x.status === "uploading" || x.status === "needs-file"))}>Clear finished</button>
           </div>
           {uploads.map((u) => {
             const pct = u.size ? Math.min(100, (u.loaded / u.size) * 100) : 0;
+            const done = u.status === "done", failed = u.status === "error", interrupted = u.status === "interrupted";
+            const cancelled = u.status === "cancelled", uploading = u.status === "uploading", needsFile = u.status === "needs-file";
+            const halted = uploading && (u.phase === "paused" || u.phase === "interrupted");
+            const statusColor = done ? "var(--up)" : failed || interrupted || u.phase === "interrupted" ? "var(--down)" : "var(--muted)";
+            const chunkLabel = u.chunked && u.totalChunks ? ` · chunk ${Math.min((u.chunkIndex ?? 0) + 1, u.totalChunks)}/${u.totalChunks}` : "";
+            const note = phaseText(u);
             return (
-              <div key={u.id} className="upload-item">
-                <Icon name={u.status === "done" ? "checkCircle" : u.status === "error" ? "alertCircle" : "upload"} size={16}
-                  style={{ color: u.status === "done" ? "var(--success)" : u.status === "error" ? "var(--danger)" : "var(--muted)" }} />
-                <span className="truncate small">{u.name}</span>
-                <span className="small" style={{ color: u.status === "error" ? "var(--down)" : u.status === "done" ? "var(--up)" : "var(--muted)" }}>
-                  {u.status === "error" ? (u.error || "Failed") : u.status === "done" ? "Done" : `${pct.toFixed(0)}%`}
-                </span>
-                {u.status === "uploading" && <div className="progress ui-prog"><div className="progress-bar" style={{ width: `${pct}%` }} /></div>}
+              <div key={u.id} className="upload-item" style={{ display: "block" }}>
+                <div className="between" style={{ gap: 8 }}>
+                  <span className="row" style={{ gap: 8, minWidth: 0 }}>
+                    <Icon name={done ? "checkCircle" : failed || interrupted ? "alertCircle" : halted || needsFile ? "pause" : "upload"} size={16} style={{ color: statusColor, flex: "none" }} />
+                    <span className="truncate small strong" title={u.name}>{u.name}</span>
+                    <span className="faint tiny" style={{ flex: "none" }}>{fmtBytes(u.size)}</span>
+                  </span>
+                  <span className="small" style={{ color: statusColor, flex: "none" }}>
+                    {done ? "Done" : cancelled ? "Cancelled" : interrupted ? "Interrupted" : failed ? "Failed" : `${pct.toFixed(0)}%${chunkLabel}`}
+                  </span>
+                </div>
+                {(uploading || needsFile) && (
+                  <>
+                    <div className="progress ui-prog" style={{ margin: "7px 0 5px" }}><div className="progress-bar" style={{ width: `${pct}%`, opacity: halted || needsFile ? 0.5 : 1 }} /></div>
+                    <div className="between faint tiny" style={{ gap: 8 }}>
+                      <span>{fmtBytes(u.loaded)} / {fmtBytes(u.size)}</span>
+                      {uploading && !halted && u.phase !== "verifying" && u.phase !== "finalizing" && (
+                        <span>
+                          {u.speed ? `${fmtBytes(u.speed)}/s` : "…"}
+                          {u.avgSpeed ? ` · avg ${fmtBytes(u.avgSpeed)}/s` : ""}
+                          {u.eta != null && isFinite(u.eta) ? ` · ~${fmtDuration(u.eta)} left` : ""}
+                        </span>
+                      )}
+                    </div>
+                  </>
+                )}
+                {uploading && note && <div className="tiny" style={{ marginTop: 3, color: u.phase === "interrupted" || u.phase === "retrying" ? "var(--warn, var(--down))" : "var(--muted)" }}>{note}</div>}
+                {needsFile && <div className="tiny muted" style={{ marginTop: 3 }}>Paused by a page reload — select the same file to resume from {fmtBytes(u.loaded)}.</div>}
+                {(failed || interrupted) && u.error && <div className="tiny" style={{ marginTop: 3, color: "var(--down)" }}>{u.error}</div>}
+                {u.chunked && (uploading || needsFile) && (
+                  <div className="row" style={{ gap: 6, marginTop: 6 }}>
+                    {needsFile && <Button size="sm" variant="primary" icon="upload" onClick={() => pickResumeFile(u)}>Select file to resume</Button>}
+                    {needsFile && <Button size="sm" variant="subtle" icon="trash" onClick={() => discardUpload(u)}>Discard</Button>}
+                    {uploading && !halted && u.phase !== "finalizing" && <Button size="sm" variant="subtle" icon="pause" onClick={() => controllers.current.get(u.id)?.pause()}>Pause</Button>}
+                    {uploading && halted && <Button size="sm" variant="primary" icon="play" onClick={() => controllers.current.get(u.id)?.resume()}>Resume</Button>}
+                    {uploading && u.phase !== "finalizing" && <Button size="sm" variant="subtle" icon="x" onClick={() => cancelUpload(u)}>Cancel</Button>}
+                  </div>
+                )}
               </div>
             );
           })}

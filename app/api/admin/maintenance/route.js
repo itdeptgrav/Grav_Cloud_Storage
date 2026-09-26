@@ -1,10 +1,11 @@
 // POST /api/admin/maintenance — super-admin operational actions.
 //   { action: "temp-clean" }   remove stale tmp/*.part
 //   { action: "purge-trash" }  permanently purge trash past retention
+//   { action: "chunk-clean" }  expire idle chunked uploads + reap orphan chunk temps
 // Each action is explicit and scoped (no "fix everything" button).
 import { ok, fail } from "@/lib/http";
 import { requireAdmin } from "@/lib/auth/guards";
-import { cleanTempFiles, purgeExpiredTrash } from "@/lib/maintenance";
+import { cleanTempFiles, purgeExpiredTrash, cleanChunkSessions } from "@/lib/maintenance";
 import { recordAudit } from "@/lib/services/auditService";
 import { ipOf } from "@/lib/apiLog";
 import { csrfGuard } from "@/lib/csrf";
@@ -27,6 +28,11 @@ export async function POST(request) {
   if (action === "purge-trash") {
     const r = await purgeExpiredTrash();
     recordAudit({ user, action: "maintenance.purge_trash", targetType: "system", details: r, ip: ipOf(request) });
+    return ok(r);
+  }
+  if (action === "chunk-clean") {
+    const r = await cleanChunkSessions();
+    recordAudit({ user, action: "maintenance.chunk_clean", targetType: "system", details: r, ip: ipOf(request) });
     return ok(r);
   }
   return fail("VALIDATION_ERROR", "Unknown maintenance action.");

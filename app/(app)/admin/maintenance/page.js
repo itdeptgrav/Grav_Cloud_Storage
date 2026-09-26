@@ -24,7 +24,7 @@ export default function MaintenancePage() {
   async function maint(action) {
     if (action === "purge-trash" && !(await confirmAction({ title: "Purge expired trash?", danger: true, body: "Permanently removes all trashed files past the retention window. This cannot be undone.", confirmLabel: "Purge trash" }))) return;
     setBusy(action);
-    try { const r = await api.post("/api/admin/maintenance", { action }); toast.success(action === "temp-clean" ? `Removed ${r.removed} stale temp file(s) (${fmtBytes(r.bytes || 0)})` : `Purged ${r.purged ?? 0} file(s)`); }
+    try { const r = await api.post("/api/admin/maintenance", { action }); toast.success(action === "temp-clean" ? `Removed ${r.removed} stale temp file(s) (${fmtBytes(r.bytes || 0)})` : action === "chunk-clean" ? `Expired ${r.expired} idle upload(s), recovered ${r.interrupted}, removed ${r.orphansRemoved} orphan(s) (${fmtBytes(r.bytesFreed || 0)})` : `Purged ${r.purged ?? 0} file(s)`); }
     catch (e) { toast.error(e.message); } finally { setBusy(""); }
   }
 
@@ -46,6 +46,11 @@ export default function MaintenancePage() {
           <div className="row" style={{ gap: 8 }}><Icon name="wrench" size={16} style={{ color: "var(--accent-2)" }} /><h3 style={{ margin: 0 }}>Clean temp files</h3></div>
           <p className="muted small" style={{ margin: "8px 0 12px" }}>Remove stale <code>tmp/*.part</code> from interrupted uploads past the age threshold.</p>
           <Button size="sm" loading={busy === "temp-clean"} icon="refresh" onClick={() => maint("temp-clean")}>Clean temp files</Button>
+        </div>
+        <div className="card">
+          <div className="row" style={{ gap: 8 }}><Icon name="upload" size={16} style={{ color: "var(--accent-2)" }} /><h3 style={{ margin: 0 }}>Chunked uploads</h3></div>
+          <p className="muted small" style={{ margin: "8px 0 12px" }}>Expire idle chunked uploads and delete their temp data; remove orphaned chunk temp files. Never touches a live upload.</p>
+          <Button size="sm" loading={busy === "chunk-clean"} icon="refresh" onClick={() => maint("chunk-clean")}>Clean chunked uploads</Button>
         </div>
         <div className="card">
           <div className="row" style={{ gap: 8 }}><Icon name="database" size={16} style={{ color: "var(--accent-2)" }} /><h3 style={{ margin: 0 }}>Reconcile counters</h3></div>
@@ -85,7 +90,7 @@ export default function MaintenancePage() {
         )}
       </>)}
 
-      <Callout type="info" icon="info" style={{ marginTop: 18 }}>CLI equivalents: <code>npm run storage:integrity</code>, <code>storage:reconcile</code>, <code>storage:cleanup</code>, <code>storage:purge-trash</code>.</Callout>
+      <Callout type="info" icon="info" style={{ marginTop: 18 }}>CLI equivalents: <code>npm run storage:integrity</code>, <code>storage:reconcile</code>, <code>storage:cleanup</code>, <code>storage:chunks</code>, <code>storage:purge-trash</code>.</Callout>
     </>
   );
 }

@@ -1,8 +1,9 @@
 # Dependencies
 node_modules/
 
-# Next.js build output
+# Next.js build output (and isolated test-instance builds)
 .next/
+.next-*/
 out/
 
 # Environment — NEVER commit real secrets or API keys.

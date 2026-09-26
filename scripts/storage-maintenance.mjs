@@ -4,12 +4,14 @@
 //   npm run storage:reconcile        (report; add -- --apply <projectId> to fix)
 //   npm run storage:cleanup          (remove stale tmp/*.part)
 //   npm run storage:purge-trash      (purge trash past retention)
-//   npm run maintenance              (cleanup + purge-trash)
+//   npm run storage:chunks           (expire idle chunked uploads, reap orphan chunk temps)
+//   npm run maintenance              (cleanup + chunks + purge-trash)
 import mongoose from "mongoose";
 import connectDB from "@/lib/db/mongoose";
 import { runIntegrityCheck } from "@/lib/integrity";
 import { reconcileAll, applyReconcile } from "@/lib/reconcile";
-import { cleanTempFiles, purgeExpiredTrash } from "@/lib/maintenance";
+import { cleanTempFiles, purgeExpiredTrash, cleanChunkSessions } from "@/lib/maintenance";
+import { describeError } from "@/lib/logSafe";
 
 const cmd = process.argv[2];
 const args = process.argv.slice(3);
@@ -43,18 +45,23 @@ async function main() {
       console.log("Trash purge:", JSON.stringify(await purgeExpiredTrash()));
       break;
     }
+    case "chunks": {
+      console.log("Chunked uploads:", JSON.stringify(await cleanChunkSessions()));
+      break;
+    }
     case "all": {
       console.log("Temp cleanup:", JSON.stringify(await cleanTempFiles()));
+      console.log("Chunked uploads:", JSON.stringify(await cleanChunkSessions()));
       console.log("Trash purge:", JSON.stringify(await purgeExpiredTrash()));
       break;
     }
     default:
-      console.log("Usage: storage-maintenance <integrity [--full] | reconcile [--apply <id>] | cleanup | purge-trash | all>");
+      console.log("Usage: storage-maintenance <integrity [--full] | reconcile [--apply <id>] | cleanup | chunks | purge-trash | all>");
   }
   await mongoose.disconnect();
   process.exit(0);
 }
 main().catch((e) => {
-  console.error("maintenance error:", e.message);
+  console.error("maintenance error:", describeError(e)); // path-free (scheduled runs log this)
   process.exit(1);
 });
